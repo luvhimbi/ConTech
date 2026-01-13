@@ -1,0 +1,63 @@
+/* src/globals.css */
+:root {
+    --primary-black: #000000;
+    --primary-white: #ffffff;
+    --accent-gray: #f8f9fa;
+    --border-color: #e0e0e0;
+    --font-main: 'Poppins', sans-serif;
+}
+
+body {
+    font-family: var(--font-main);
+    background-color: var(--primary-white);
+    color: var(--primary-black);
+}
+
+/* Design System Buttons */
+.btn-black {
+    background-color: var(--primary-black);
+    color: var(--primary-white);
+    border: 1px solid var(--primary-black);
+    border-radius: 4px;
+    padding: 10px 20px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-black:hover {
+    background-color: #333;
+    color: var(--primary-white);
+    transform: translateY(-1px);
+}
+
+.btn-outline-black {
+    background-color: transparent;
+    color: var(--primary-black);
+    border: 2px solid var(--primary-black);
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.btn-outline-black:hover {
+    background-color: var(--primary-black);
+    color: var(--primary-white);
+}
+
+/* Card Styling */
+.card {
+    border: 1px solid var(--border-color);
+    border-radius: 0px; /* Sharp modern edges */
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
+}
+
+/* Input Styling */
+.form-control {
+    border-radius: 0px;
+    border: 1px solid var(--border-color);
+    padding: 12px;
+}
+
+.form-control:focus {
+    border-color: var(--primary-black);
+    box-shadow: none;
+}
