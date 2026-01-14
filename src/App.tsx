@@ -31,6 +31,7 @@ import QuoteRequests from "./components/QuoteRequests.tsx";
 import QuoteRequestDetail from "./components/QuoteRequestDetail.tsx";
 import AppLayout from "./components/AppLayout.tsx";
 import WebsiteLayout from "./components/WebLayout.tsx";
+import DocsLayout from "./components/DocsLayout.tsx";
 
 const App: React.FC = () => {
     return (
@@ -73,7 +74,9 @@ const App: React.FC = () => {
                             <Route path="/form-analytics" element={<FormAnalytics />} />
                             <Route path="/quote-requests" element={<QuoteRequests />} />
                             <Route path="/quote-requests/:id" element={<QuoteRequestDetail />} />
-                            {/* fallback */}
+
+                                <Route path="/docs" element={<DocsLayout />} />
+                                {/* fallback */}
                             <Route path="*" element={<Navigate to="/" replace />} />
                             </Route>
                         </Routes>

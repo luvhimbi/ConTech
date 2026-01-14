@@ -71,4 +71,8 @@ body {
     font-size: 0.75rem;
     color: #6b7280;
 }
-s
+article h1 { margin-bottom: 0.5em; color: var(--color-text); }
+article h3 { margin-top: 1.5em; margin-bottom: 0.5em; font-size: 22px; }
+article p { margin-bottom: 1em; line-height: 1.7; }
+article ul li { margin-bottom: 8px; color: var(--color-text-secondary); }
+article strong { color: var(--color-text); }
