@@ -1,8 +1,13 @@
 // src/firebaseConfig.ts
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
-
+// import { getFirestore } from "firebase/firestore";
+import {
+    getFirestore,
+    initializeFirestore,
+    persistentLocalCache,
+    persistentMultipleTabManager,
+} from "firebase/firestore";
 // Type for Firebase config
 interface FirebaseConfig {
     apiKey: string;
@@ -25,7 +30,11 @@ const firebaseConfig: FirebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-
+initializeFirestore(app, {
+    localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(), // avoids multi-tab conflicts
+    }),
+});
 // Initialize Services
 export const auth = getAuth(app);
 export const db = getFirestore(app); // For storing user data later

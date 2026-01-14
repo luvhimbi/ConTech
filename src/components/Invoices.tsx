@@ -1219,14 +1219,19 @@ const Invoices: React.FC = () => {
 
                                             <div className="form-group">
                                                 <label className="form-label">Account Type</label>
-                                                <input
+                                                <select
                                                     name="accountType"
                                                     className="form-control"
-                                                    value={billing.accountType}
+                                                    value={billing.accountType || ""}
                                                     onChange={handleBillingChange}
                                                     disabled={saving}
-                                                />
+                                                >
+                                                    <option value="">Select account type</option>
+                                                    <option value="savings">Savings</option>
+                                                    <option value="cheque">Cheque</option>
+                                                </select>
                                             </div>
+
 
                                             <div className="form-group">
                                                 <label className="form-label">Payment Reference Note</label>

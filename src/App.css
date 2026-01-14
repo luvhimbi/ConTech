@@ -60,4 +60,15 @@ body {
 .form-control:focus {
     border-color: var(--primary-black);
     box-shadow: none;
+}.app-footer {
+     padding: 12px 0;
+     border-top: 1px solid #e5e7eb;
+     background-color: #fafafa;
+     text-align: center;
+ }
+
+.app-footer .footer-text {
+    font-size: 0.75rem;
+    color: #6b7280;
 }
+s

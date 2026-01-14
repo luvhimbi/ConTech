@@ -150,7 +150,6 @@ export const createQuotation = async (
       clientEmail: (input.clientEmail || "").trim(),
       clientAddress: (input.clientAddress || "").trim(),
       clientPhone: (input.clientPhone || "").trim(),
-
       projectId,
 
       items,

@@ -1,325 +1,205 @@
 // src/components/Navbar.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { auth } from "../firebaseConfig";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import toast, { Toaster } from "react-hot-toast";
 import BrandLink from "./BrandLink";
 
+import {
+    User as UserIcon,
+    LogOut,
+    LogIn,
+    UserPlus,
+    Menu,
+    X,
+    Globe,
+    BadgeInfo,
+    Tag,
+    Mail,
+    Home,
+} from "lucide-react";
+
 const Navbar: React.FC = () => {
     const [user, setUser] = useState<User | null>(null);
     const [menuOpen, setMenuOpen] = useState(false);
     const navigate = useNavigate();
+    const location = useLocation();
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-            setUser(currentUser);
-        });
-        return () => unsubscribe();
+        const unsub = onAuthStateChanged(auth, setUser);
+        return () => unsub();
     }, []);
 
-    // Close menu when route changes (and after auth changes)
-    useEffect(() => {
-        setMenuOpen(false);
-    }, [user]);
-
-    // Close menu on ESC
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setMenuOpen(false);
-        };
-        window.addEventListener("keydown", handler);
-        return () => window.removeEventListener("keydown", handler);
-    }, []);
+    useEffect(() => setMenuOpen(false), [location.pathname, user]);
 
     const handleLogout = () => {
-        toast(
-            (t) => (
-                <span>
-          Are you sure you want to log out?
-          <div
-              style={{
-                  marginTop: "var(--spacing-sm)",
-                  display: "flex",
-                  gap: "var(--spacing-xs)",
-              }}
-          >
-            <button
-                className="btn btn-primary"
-                style={{ padding: "4px 12px", fontSize: "12px" }}
-                onClick={async () => {
-                    toast.dismiss(t.id);
-                    await signOut(auth);
-                    setMenuOpen(false);
-                    navigate("/login");
-                    toast.success("Successfully logged out");
-                }}
-            >
-              Yes, Logout
-            </button>
-            <button
-                className="btn btn-outline"
-                style={{ padding: "4px 12px", fontSize: "12px" }}
-                onClick={() => toast.dismiss(t.id)}
-            >
-              Cancel
-            </button>
-          </div>
-        </span>
-            ),
-            {
-                duration: 6000,
-                position: "top-center",
-            }
-        );
+        toast((t) => (
+            <span>
+                Are you sure you want to log out?
+                <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                    <button
+                        className="btn btn-primary"
+                        onClick={async () => {
+                            toast.dismiss(t.id);
+                            await signOut(auth);
+                            navigate("/login");
+                            toast.success("Logged out");
+                        }}
+                    >
+                        Logout
+                    </button>
+                    <button className="btn btn-outline" onClick={() => toast.dismiss(t.id)}>
+                        Cancel
+                    </button>
+                </div>
+            </span>
+        ));
     };
 
-    const linkBaseStyle: React.CSSProperties = useMemo(
-        () => ({
-            fontSize: "var(--font-size-base)",
-            color: "var(--color-text)",
-            textDecoration: "none",
-            padding: "8px 10px",
-            borderRadius: "10px",
-            transition: "all var(--transition-base)",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-        }),
-        []
-    );
+    const baseLink: React.CSSProperties = {
+        fontSize: "14px",
+        color: "var(--color-text)",
+        textDecoration: "none",
+        padding: "8px 12px",
+        borderRadius: 8,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        transition: "all 0.2s ease"
+    };
 
-    const navLinkStyle = ({ isActive }: { isActive: boolean }): React.CSSProperties => ({
-        ...linkBaseStyle,
+    const navStyle = ({ isActive }: { isActive: boolean }) => ({
+        ...baseLink,
         background: isActive ? "var(--color-border-light)" : "transparent",
+        fontWeight: isActive ? 600 : 400,
     });
 
-    const overlay = menuOpen ? (
-        <div
-            onClick={() => setMenuOpen(false)}
-            style={{
-                position: "fixed",
-                inset: 0,
-                background: "rgba(0,0,0,0.35)",
-                zIndex: 40,
-            }}
-        />
-    ) : null;
+    const iconSize = { width: 16, height: 16, color: "var(--color-text-secondary)" };
+
+    /* ---------------- SHARED/BASIC LINKS ---------------- */
+
+    const BasicLinks = (
+        <>
+            <NavLink to="/" style={navStyle}>
+                <Home style={iconSize} /> Home
+            </NavLink>
+            <NavLink to="/pricing" style={navStyle}>
+                <Tag style={iconSize} /> Pricing
+            </NavLink>
+            <NavLink to="/contact" style={navStyle}>
+                <Mail style={iconSize} /> Contact
+            </NavLink>
+        </>
+    );
 
     return (
         <>
             <Toaster />
-            {overlay}
 
             <nav
                 style={{
+                    height: "64px",
+                    display: "flex",
+                    alignItems: "center",
                     borderBottom: "1px solid var(--color-border)",
-                    backgroundColor: "var(--color-background)",
-                    padding: "var(--spacing-lg) 0",
+                    background: "var(--color-background)",
                     position: "sticky",
                     top: 0,
                     zIndex: 50,
                 }}
             >
-                <div
-                    className="container"
-                    style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: "var(--spacing-md)",
-                    }}
-                >
-                    {/* Brand */}
-                    <div style={{ display: "flex", alignItems: "center", gap: "var(--spacing-sm)" }}>
+                <div className="container" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "24px" }}>
                         <BrandLink text="CONTECH" />
+                        <div className="navbar-desktop" style={{ display: "flex", gap: 4 }}>
+                            {BasicLinks}
+                        </div>
                     </div>
 
-                    {/* Desktop links */}
-                    <div
-                        className="navbar-desktop"
-                        style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "var(--spacing-xl)",
-                        }}
-                    >
+                    <div className="navbar-desktop" style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         {!user ? (
                             <>
-                                <NavLink to="/login" style={navLinkStyle}>
-                                    Sign In
+                                <NavLink to="/login" style={navStyle}>
+                                    <LogIn style={iconSize} /> Sign in
                                 </NavLink>
-                                <Link to="/register" className="btn btn-outline">
-                                    Get Started
+                                <Link to="/register" className="btn btn-primary" style={{ height: "38px", display: "flex", alignItems: "center", gap: 8 }}>
+                                    <UserPlus size={16} /> Get started
                                 </Link>
                             </>
                         ) : (
                             <>
-                                <NavLink to="/dashboard" style={navLinkStyle}>
-                                    Dashboard
+                                <NavLink to="/profile" style={navStyle} title="View Profile">
+                                    <div style={{
+                                        width: 32,
+                                        height: 32,
+                                        borderRadius: "50%",
+                                        background: "var(--color-primary-light)",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        color: "var(--color-primary)",
+                                        fontSize: 12,
+                                        fontWeight: 700
+                                    }}>
+                                        {user.email?.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
+                                        {user.email}
+                                    </span>
                                 </NavLink>
-                                <NavLink to="/clients" style={navLinkStyle}>
-                                    Clients
-                                </NavLink>
-                                <NavLink to="/projects" style={navLinkStyle}>
-                                    Projects
-                                </NavLink>
-                                <NavLink to="/profile" style={navLinkStyle}>
-                                    Profile
-                                </NavLink>
-
-                                <span
-                                    style={{
-                                        fontSize: "var(--font-size-base)",
-                                        color: "var(--color-text-secondary)",
-                                        maxWidth: 260,
-                                        overflow: "hidden",
-                                        textOverflow: "ellipsis",
-                                        whiteSpace: "nowrap",
-                                    }}
-                                    title={user.email || ""}
-                                >
-                  {user.email}
-                </span>
-
-                                <button className="btn btn-outline" onClick={handleLogout}>
-                                    Logout
+                                <button className="btn btn-outline" onClick={handleLogout} style={{ height: "38px" }}>
+                                    <LogOut size={16} /> Logout
                                 </button>
                             </>
                         )}
                     </div>
 
-                    {/* Mobile toggle button */}
                     <button
-                        type="button"
-                        aria-label="Toggle menu"
-                        aria-expanded={menuOpen}
-                        onClick={() => setMenuOpen((v) => !v)}
                         className="btn btn-outline navbar-toggle"
-                        style={{
-                            padding: "8px 10px",
-                            display: "none",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: "8px",
-                        }}
+                        onClick={() => setMenuOpen(!menuOpen)}
+                        style={{ padding: "8px" }}
                     >
-            <span
-                style={{
-                    display: "inline-block",
-                    width: 18,
-                    height: 2,
-                    background: "var(--color-text)",
-                    position: "relative",
-                }}
-            >
-              <span
-                  style={{
-                      content: '""',
-                      position: "absolute",
-                      left: 0,
-                      top: -6,
-                      width: 18,
-                      height: 2,
-                      background: "var(--color-text)",
-                  }}
-              />
-              <span
-                  style={{
-                      content: '""',
-                      position: "absolute",
-                      left: 0,
-                      top: 6,
-                      width: 18,
-                      height: 2,
-                      background: "var(--color-text)",
-                  }}
-              />
-            </span>
+                        {menuOpen ? <X size={20} /> : <Menu size={20} />}
                     </button>
-                </div>
-
-                {/* Mobile dropdown */}
-                <div
-                    className="navbar-mobile"
-                    style={{
-                        display: menuOpen ? "block" : "none",
-                        borderTop: "1px solid var(--color-border)",
-                        background: "var(--color-background)",
-                        position: "relative",
-                        zIndex: 60,
-                    }}
-                >
-                    <div className="container" style={{ paddingTop: "var(--spacing-md)", paddingBottom: "var(--spacing-md)" }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                            {!user ? (
-                                <>
-                                    <NavLink to="/login" style={navLinkStyle} onClick={() => setMenuOpen(false)}>
-                                        Sign In
-                                    </NavLink>
-
-                                    <Link to="/register" className="btn btn-outline" onClick={() => setMenuOpen(false)}>
-                                        Get Started
-                                    </Link>
-                                </>
-                            ) : (
-                                <>
-                                    <NavLink to="/dashboard" style={navLinkStyle} onClick={() => setMenuOpen(false)}>
-                                        Dashboard
-                                    </NavLink>
-                                    <NavLink to="/projects" style={navLinkStyle} onClick={() => setMenuOpen(false)}>
-                                        Projects
-                                    </NavLink>
-                                    <NavLink to="/profile" style={navLinkStyle} onClick={() => setMenuOpen(false)}>
-                                        Profile
-                                    </NavLink>
-
-                                    <div
-                                        style={{
-                                            padding: "8px 10px",
-                                            borderRadius: "10px",
-                                            border: "1px solid var(--color-border)",
-                                            color: "var(--color-text-secondary)",
-                                            fontSize: "var(--font-size-sm)",
-                                            overflow: "hidden",
-                                            textOverflow: "ellipsis",
-                                            whiteSpace: "nowrap",
-                                        }}
-                                        title={user.email || ""}
-                                    >
-                                        {user.email}
-                                    </div>
-
-                                    <button
-                                        className="btn btn-outline"
-                                        onClick={() => {
-                                            setMenuOpen(false);
-                                            handleLogout();
-                                        }}
-                                        style={{ width: "fit-content" }}
-                                    >
-                                        Logout
-                                    </button>
-                                </>
-                            )}
-                        </div>
-                    </div>
                 </div>
             </nav>
 
-            {/* Responsive behavior using a tiny CSS block */}
-            <style>{`
-        /* Desktop default */
-        .navbar-desktop { display: flex; }
-        .navbar-toggle { display: none; }
-        .navbar-mobile { display: none; }
+            {/* Mobile Menu Overlay */}
+            {menuOpen && (
+                <div style={{
+                    position: "fixed",
+                    top: "64px",
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: "var(--color-background)",
+                    zIndex: 49,
+                    padding: "20px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px"
+                }}>
+                    {BasicLinks}
+                    <hr style={{ border: 0, borderTop: "1px solid var(--color-border)", margin: "10px 0" }} />
+                    {!user ? (
+                        <>
+                            <Link to="/login" className="btn btn-outline" style={{ justifyContent: "center" }}>Sign in</Link>
+                            <Link to="/register" className="btn btn-primary" style={{ justifyContent: "center" }}>Get started</Link>
+                        </>
+                    ) : (
+                        <button className="btn btn-outline" onClick={handleLogout} style={{ justifyContent: "center" }}>Logout</button>
+                    )}
+                </div>
+            )}
 
-        /* Mobile */
-        @media (max-width: 860px) {
-          .navbar-desktop { display: none !important; }
-          .navbar-toggle { display: inline-flex !important; }
-        }
-      `}</style>
+            <style>{`
+                .navbar-toggle { display: none; }
+                @media (max-width: 980px) {
+                    .navbar-desktop { display: none !important; }
+                    .navbar-toggle { display: inline-flex !important; }
+                }
+            `}</style>
         </>
     );
 };

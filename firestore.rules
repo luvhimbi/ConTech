@@ -1,79 +1,290 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper function to check if user is authenticated
+
+    // ---------------- HELPERS ----------------
     function isAuthenticated() {
       return request.auth != null;
     }
-    
-    // Helper function to check if user owns the resource
+
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
-    
-    // Users collection - users can only read/write their own profile
+
+    function isStringOrMissing(obj, key) {
+      return !(key in obj) || obj[key] is string;
+    }
+
+    function isNumberOrMissing(obj, key) {
+      return !(key in obj) || obj[key] is number;
+    }
+
+    function isBoolOrMissing(obj, key) {
+      return !(key in obj) || obj[key] is bool;
+    }
+
+    function isTimestampOrMissingOrNull(obj, key) {
+      return !(key in obj) || obj[key] is timestamp || obj[key] == null;
+    }
+
+    // ---------------- CLIENT VALIDATOR ----------------
+    function validClientDoc(data) {
+      return (data.name is string)
+        && (data.email is string)
+        && (data.emailLower is string)
+        && (data.address is string)
+        && (data.phone is string)
+        && (data.tags is list)
+        && (data.notes is string)
+        && (data.preferredContact is string)
+        && (data.siteAccessRules is string)
+        && (data.createdAt is timestamp)
+        && (data.updatedAt is timestamp);
+    }
+
+    // ---------------- INVOICE VALIDATORS ----------------
+    function validBilling(billing) {
+      return billing is map
+        && ('businessName' in billing) && (billing.businessName is string)
+        && isStringOrMissing(billing, 'contactName')
+        && isStringOrMissing(billing, 'email')
+        && isStringOrMissing(billing, 'phone')
+        && isStringOrMissing(billing, 'address')
+        && isStringOrMissing(billing, 'bankName')
+        && isStringOrMissing(billing, 'accountName')
+        && isStringOrMissing(billing, 'accountNumber')
+        && isStringOrMissing(billing, 'branchCode')
+        && isStringOrMissing(billing, 'accountType')
+        && isStringOrMissing(billing, 'paymentReferenceNote');
+    }
+
+    function validDeposit(deposit) {
+      return deposit is map
+        && ('enabled' in deposit) && (deposit.enabled is bool)
+        && ('ratePercent' in deposit) && (deposit.ratePercent is number)
+        && ('amount' in deposit) && (deposit.amount is number)
+        && isTimestampOrMissingOrNull(deposit, 'dueDate')
+        && isStringOrMissing(deposit, 'notes');
+    }
+
+    function validMilestone(m) {
+      return m is map
+        && ('title' in m) && (m.title is string)
+        && ('amount' in m) && (m.amount is number)
+        && ('status' in m) && (m.status in ['not_started', 'in_progress', 'completed'])
+        && isStringOrMissing(m, 'description')
+        && isTimestampOrMissingOrNull(m, 'dueDate');
+    }
+
+    function validMilestones(list) {
+      return list is list
+        && (list.size() <= 30)
+        && (
+          list.size() == 0
+          || (
+            (list.size() >= 1 ? validMilestone(list[0]) : true) &&
+            (list.size() >= 2 ? validMilestone(list[1]) : true) &&
+            (list.size() >= 3 ? validMilestone(list[2]) : true) &&
+            (list.size() >= 4 ? validMilestone(list[3]) : true) &&
+            (list.size() >= 5 ? validMilestone(list[4]) : true) &&
+            (list.size() >= 6 ? validMilestone(list[5]) : true) &&
+            (list.size() >= 7 ? validMilestone(list[6]) : true) &&
+            (list.size() >= 8 ? validMilestone(list[7]) : true) &&
+            (list.size() >= 9 ? validMilestone(list[8]) : true) &&
+            (list.size() >= 10 ? validMilestone(list[9]) : true)
+          )
+        );
+    }
+
+    function validItem(it) {
+      return it is map
+        && ('description' in it) && (it.description is string)
+        && ('quantity' in it) && (it.quantity is number)
+        && ('unitPrice' in it) && (it.unitPrice is number)
+        && ('total' in it) && (it.total is number);
+    }
+
+    function validItems(list) {
+      return list is list
+        && (list.size() >= 1)
+        && (list.size() <= 100)
+        && (
+          validItem(list[0]) &&
+          (list.size() >= 2 ? validItem(list[1]) : true) &&
+          (list.size() >= 3 ? validItem(list[2]) : true) &&
+          (list.size() >= 4 ? validItem(list[3]) : true) &&
+          (list.size() >= 5 ? validItem(list[4]) : true) &&
+          (list.size() >= 6 ? validItem(list[5]) : true) &&
+          (list.size() >= 7 ? validItem(list[6]) : true) &&
+          (list.size() >= 8 ? validItem(list[7]) : true) &&
+          (list.size() >= 9 ? validItem(list[8]) : true) &&
+          (list.size() >= 10 ? validItem(list[9]) : true)
+        );
+    }
+
+    function validInvoiceShape(data) {
+      return
+        (data.projectId is string)
+        && (data.userId is string)
+        && (data.invoiceNumber is string)
+
+        && (data.clientName is string)
+        && (data.clientEmail is string)
+        && isStringOrMissing(data, 'clientAddress')
+        && isStringOrMissing(data, 'clientPhone')
+
+        // CRM helpers
+        && isStringOrMissing(data, 'clientId')
+        && isStringOrMissing(data, 'clientEmailLower')
+
+        && (data.subtotal is number)
+        && (data.taxRate is number)
+        && (data.taxAmount is number)
+        && (data.totalAmount is number)
+
+        && (data.status in ['pending', 'paid', 'cancelled'])
+        && (data.dueDate is timestamp)
+        && (data.createdAt is timestamp)
+        && (data.updatedAt is timestamp)
+
+        && ('items' in data) && validItems(data.items)
+        && ('billing' in data) && validBilling(data.billing)
+        && ('deposit' in data) && validDeposit(data.deposit)
+        && ('milestones' in data) && validMilestones(data.milestones);
+    }
+
+    // ---------------- QUOTATION VALIDATOR ----------------
+    function validQuotationShape(data, projectId) {
+      return
+        (data.userId is string)
+        && (data.projectId is string)
+        && (data.projectId == projectId)
+        && (data.quotationNumber is string)
+
+        && (data.clientName is string)
+        && (data.clientEmail is string)
+        && (data.clientAddress is string)
+
+        // CRM helpers
+        && isStringOrMissing(data, 'clientId')
+        && isStringOrMissing(data, 'clientEmailLower')
+
+        && ('items' in data) && (data.items is list)
+        && (data.subtotal is number)
+        && (data.taxRate is number)
+        && (data.taxAmount is number)
+        && (data.total is number)
+
+        && (data.status in ['draft', 'sent', 'accepted', 'rejected'])
+        && (data.createdAt is timestamp)
+        && (data.updatedAt is timestamp);
+    }
+
+    // ---------------- USERS ----------------
     match /users/{userId} {
       allow read: if isOwner(userId);
-      allow create: if isAuthenticated() && request.auth.uid == userId 
+
+      allow create: if isOwner(userId)
         && request.resource.data.firstName is string
         && request.resource.data.lastName is string
         && request.resource.data.companyName is string
         && request.resource.data.email is string
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.createdAt is timestamp;
+
       allow update: if isOwner(userId)
         && request.resource.data.email == resource.data.email
         && request.resource.data.createdAt == resource.data.createdAt;
-      allow delete: if false; // Prevent deletion of user profiles
+
+      allow delete: if false;
+
+      match /clients/{clientId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId) && validClientDoc(request.resource.data);
+
+        allow update: if isOwner(userId)
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt is timestamp
+          && validClientDoc(request.resource.data);
+
+        allow delete: if isOwner(userId);
+      }
+
+      match /leads/{leadId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
     }
-    
-    // Projects collection - users can only access their own projects
+
+    // ---------------- PROJECTS ----------------
     match /projects/{projectId} {
       allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow create: if isAuthenticated() 
+
+      allow create: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.name is string
         && request.resource.data.location is string
         && request.resource.data.status in ['not_started', 'started']
         && request.resource.data.createdAt is timestamp
         && request.resource.data.updatedAt is timestamp;
-      allow update: if isAuthenticated() 
+
+      allow update: if isAuthenticated()
         && resource.data.userId == request.auth.uid
         && request.resource.data.userId == resource.data.userId
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'location', 'status', 'updatedAt'])
-        && request.resource.data.status in ['not_started', 'started'];
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['name', 'location', 'status', 'updatedAt'])
+        && request.resource.data.status in ['not_started', 'started']
+        && request.resource.data.updatedAt is timestamp;
+
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      
-      // Quotations as subcollection within projects
+
+      // ---------------- QUOTATIONS ----------------
       match /quotations/{quotationId} {
-        allow read: if isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.userId == request.auth.uid;
+
+        // ✅ QUERY-FRIENDLY READ (for collectionGroup history/pipeline)
+        allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
         allow create: if isAuthenticated()
-          && get(/databases/$(database)/documents/projects/$(projectId)).data.userId == request.auth.uid
+          && request.resource.data.userId == request.auth.uid
+          && validQuotationShape(request.resource.data, projectId);
+
+        allow update: if isAuthenticated()
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.projectId == resource.data.projectId
+          && request.resource.data.quotationNumber == resource.data.quotationNumber
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt is timestamp
+          && validQuotationShape(request.resource.data, projectId);
+
+        allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      }
+
+      // ---------------- INVOICES ----------------
+      match /invoices/{invoiceId} {
+
+        // ✅ QUERY-FRIENDLY READ (for collectionGroup history/pipeline)
+        allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
+        allow create: if isAuthenticated()
           && request.resource.data.userId == request.auth.uid
           && request.resource.data.projectId == projectId
-          && request.resource.data.quotationNumber is string
-          && request.resource.data.clientName is string
-          && request.resource.data.clientEmail is string
-          && request.resource.data.clientAddress is string
-          && request.resource.data.items is list
-          && request.resource.data.subtotal is number
-          && request.resource.data.taxRate is number
-          && request.resource.data.taxAmount is number
-          && request.resource.data.total is number
-          && request.resource.data.status in ['draft', 'sent', 'accepted', 'rejected']
-          && request.resource.data.createdAt is timestamp
-          && request.resource.data.updatedAt is timestamp;
-        allow delete: if isAuthenticated() 
-          && get(/databases/$(database)/documents/projects/$(projectId)).data.userId == request.auth.uid
-          && resource.data.userId == request.auth.uid;
+          && validInvoiceShape(request.resource.data);
+
+        allow update: if isAuthenticated()
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.projectId == resource.data.projectId
+          && request.resource.data.invoiceNumber == resource.data.invoiceNumber
+          && request.resource.data.createdAt == resource.data.createdAt
+          && validInvoiceShape(request.resource.data);
+
+        allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
       }
     }
-    
-    // Deny all other access
+
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-

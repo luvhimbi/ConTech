@@ -1,4 +1,4 @@
-import { db } from "../firebaseConfig";
+// src/services/clientHistoryService.ts
 import {
     collectionGroup,
     getDocs,
@@ -7,19 +7,12 @@ import {
     where,
     type DocumentData,
 } from "firebase/firestore";
+import { db } from "../firebaseConfig";
 
-export type ClientHistoryItem =
-    | {
-    type: "quotation";
-    id: string;
-    projectId: string;
-    number: string;
-    status: string;
-    total: number;
-    createdAt: Date;
-}
-    | {
-    type: "invoice";
+export type ClientHistoryType = "invoice" | "quotation";
+
+export type ClientHistoryItem = {
+    type: ClientHistoryType;
     id: string;
     projectId: string;
     number: string;
@@ -36,59 +29,71 @@ const toDateSafe = (v: any) => {
     }
 };
 
-export const getClientHistory = async (userId: string, clientEmail: string): Promise<ClientHistoryItem[]> => {
+/**
+ * Fetches history for a client across all projects using collectionGroup.
+ * Note: You must create a Composite Index in Firebase Console for:
+ * 1. Collection Group 'invoices' (userId: ASC, clientEmailLower: ASC, createdAt: DESC)
+ * 2. Collection Group 'quotations' (userId: ASC, clientEmailLower: ASC, createdAt: DESC)
+ */
+export const getClientHistory = async (
+    userId: string,
+    clientEmail: string
+): Promise<ClientHistoryItem[]> => {
     const emailLower = (clientEmail || "").trim().toLowerCase();
-    if (!emailLower) return [];
+    if (!emailLower || !userId) return [];
 
-    // QUOTATIONS
-    const qQuotes = query(
-        collectionGroup(db, "quotations"),
-        where("userId", "==", userId),
-        where("clientEmailLower", "==", emailLower),
-        orderBy("createdAt", "desc")
-    );
-
-    // INVOICES
-    const qInvoices = query(
+    // Corrected Queries:
+    // We filter by equality on userId and clientEmailLower.
+    // We only need to orderBy createdAt.
+    const invoicesQ = query(
         collectionGroup(db, "invoices"),
         where("userId", "==", userId),
         where("clientEmailLower", "==", emailLower),
         orderBy("createdAt", "desc")
     );
 
-    const [quotesSnap, invoicesSnap] = await Promise.all([getDocs(qQuotes), getDocs(qInvoices)]);
+    const quotationsQ = query(
+        collectionGroup(db, "quotations"),
+        where("userId", "==", userId),
+        where("clientEmailLower", "==", emailLower),
+        orderBy("createdAt", "desc")
+    );
 
-    const quotes = quotesSnap.docs.map((d) => {
-        const data = d.data() as DocumentData;
-        const projectId = (d.ref.parent.parent?.id || "") as string;
+    try {
+        const [invSnap, quoSnap] = await Promise.all([getDocs(invoicesQ), getDocs(quotationsQ)]);
 
-        return {
-            type: "quotation" as const,
-            id: d.id,
-            projectId,
-            number: data.quotationNumber || "QUOTE",
-            status: data.status || "draft",
-            total: Number(data.total) || 0,
-            createdAt: toDateSafe(data.createdAt),
-        };
-    });
+        const invoices: ClientHistoryItem[] = invSnap.docs.map((d) => {
+            const data = d.data() as DocumentData;
+            return {
+                type: "invoice",
+                id: d.id,
+                projectId: String(data.projectId || ""),
+                number: String(data.invoiceNumber || ""),
+                status: String(data.status || ""),
+                total: Number(data.totalAmount || 0),
+                createdAt: toDateSafe(data.createdAt),
+            };
+        });
 
-    const invoices = invoicesSnap.docs.map((d) => {
-        const data = d.data() as DocumentData;
-        const projectId = (d.ref.parent.parent?.id || "") as string;
+        const quotations: ClientHistoryItem[] = quoSnap.docs.map((d) => {
+            const data = d.data() as DocumentData;
+            return {
+                type: "quotation",
+                id: d.id,
+                projectId: String(data.projectId || ""),
+                number: String(data.quotationNumber || ""),
+                status: String(data.status || ""),
+                total: Number(data.total || 0),
+                createdAt: toDateSafe(data.createdAt),
+            };
+        });
 
-        return {
-            type: "invoice" as const,
-            id: d.id,
-            projectId,
-            number: data.invoiceNumber || "INV",
-            status: data.status || "pending",
-            total: Number(data.totalAmount) || 0,
-            createdAt: toDateSafe(data.createdAt),
-        };
-    });
-
-    const combined = [...quotes, ...invoices].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    return combined;
+        // Combine and sort by date for a unified timeline
+        return [...invoices, ...quotations].sort(
+            (a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0)
+        );
+    } catch (error) {
+        console.error("Error fetching client history:", error);
+        throw error;
+    }
 };
-

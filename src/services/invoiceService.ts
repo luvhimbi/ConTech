@@ -57,28 +57,22 @@ export interface Invoice {
     id?: string;
     projectId: string;
     userId: string;
-
     invoiceNumber: string;
-
     clientName: string;
     clientEmail: string;
+    clientEmailLower: string; // Added to interface
     clientAddress?: string;
     clientPhone?: string;
-
     billing: BillingDetails;
     milestones: InvoiceMilestone[];
     deposit: DepositConfig;
-
     items: InvoiceItem[];
-
     subtotal: number;
     taxRate: number;
     taxAmount: number;
     totalAmount: number;
-
     status: InvoiceStatus;
     dueDate: Date;
-
     createdAt: Date;
     updatedAt: Date;
 }
@@ -88,7 +82,6 @@ type CreateInvoiceInput = {
     clientEmail: string;
     clientAddress?: string;
     clientPhone?: string;
-
     billing?: Partial<BillingDetails>;
     milestones?: Array<{
         title: string;
@@ -103,13 +96,11 @@ type CreateInvoiceInput = {
         dueDate?: Date;
         notes?: string;
     };
-
     items: Array<{
         description: string;
         quantity: number;
         unitPrice: number;
     }>;
-
     taxRate: number;
     dueDate?: Date;
     status: InvoiceStatus;
@@ -141,20 +132,15 @@ const toTsOrNull = (d?: Date) => {
     return dd ? Timestamp.fromDate(dd) : null;
 };
 
-// IMPORTANT: Firestore does NOT allow undefined.
-// We will use empty strings and nulls instead.
-
 const normalizeString = (v: any) => (typeof v === "string" ? v.trim() : "");
 
 const buildBillingDoc = (input?: Partial<BillingDetails>) => {
-    // return ALL keys as string to satisfy strict rules if needed
     return {
         businessName: normalizeString(input?.businessName) || "Company",
         contactName: normalizeString(input?.contactName),
         email: normalizeString(input?.email),
         phone: normalizeString(input?.phone),
         address: normalizeString(input?.address),
-
         bankName: normalizeString(input?.bankName),
         accountName: normalizeString(input?.accountName),
         accountNumber: normalizeString(input?.accountNumber),
@@ -166,13 +152,12 @@ const buildBillingDoc = (input?: Partial<BillingDetails>) => {
 
 const buildMilestonesDoc = (milestones?: CreateInvoiceInput["milestones"]) => {
     if (!milestones || milestones.length === 0) return [];
-
     return milestones
         .map((m) => ({
             title: normalizeString(m.title),
             description: normalizeString(m.description),
             amount: Number(m.amount) || 0,
-            dueDate: toTsOrNull(m.dueDate), // Timestamp | null
+            dueDate: toTsOrNull(m.dueDate),
             status: (m.status ?? "not_started") as InvoiceMilestone["status"],
         }))
         .filter((m) => m.title.length > 0);
@@ -213,7 +198,7 @@ const buildDepositDoc = (totalAmount: number, input?: CreateInvoiceInput["deposi
         enabled,
         ratePercent,
         amount,
-        dueDate: toTsOrNull(input?.dueDate), // Timestamp | null
+        dueDate: toTsOrNull(input?.dueDate),
         notes: normalizeString(input?.notes),
     };
 };
@@ -226,7 +211,6 @@ export const createInvoice = async (
 ): Promise<string> => {
     try {
         const invoiceNumber = `INV-${Date.now()}`;
-
         const taxRate = Number(input.taxRate) || 0;
         const { normalizedItems, subtotal, taxAmount, totalAmount } = calcTotals(input.items, taxRate);
 
@@ -235,7 +219,6 @@ export const createInvoice = async (
         }
 
         const dueDate = toDateSafe(input.dueDate) ?? new Date();
-
         const billing = buildBillingDoc(input.billing);
         const milestones = buildMilestonesDoc(input.milestones);
         const deposit = buildDepositDoc(totalAmount, input.deposit);
@@ -244,27 +227,21 @@ export const createInvoice = async (
             projectId,
             userId,
             invoiceNumber,
-
             clientName: normalizeString(input.clientName),
             clientEmail: normalizeString(input.clientEmail),
+            clientEmailLower: (input.clientEmail || "").trim().toLowerCase(), // ✅ Required by rules
             clientAddress: normalizeString(input.clientAddress),
             clientPhone: normalizeString(input.clientPhone),
-
             billing,
             milestones,
             deposit,
-
             items: normalizedItems,
-
             subtotal,
             taxRate,
             taxAmount,
             totalAmount,
-
             status: input.status,
-
             dueDate: Timestamp.fromDate(dueDate),
-
             createdAt: Timestamp.now(),
             updatedAt: Timestamp.now(),
         };
@@ -285,67 +262,54 @@ export const getProjectInvoices = async (projectId: string): Promise<Invoice[]> 
         return snap.docs.map((d) => {
             const data = d.data() as DocumentData;
 
-            const items: InvoiceItem[] = (data.items || []).map((it: any) => ({
-                description: it.description || "",
-                quantity: Number(it.quantity) || 0,
-                unitPrice: Number(it.unitPrice) || 0,
-                total: Number(it.total) || 0,
-            }));
-
-            const billing: BillingDetails = {
-                businessName: data.billing?.businessName || "Company",
-                contactName: data.billing?.contactName || "",
-                email: data.billing?.email || "",
-                phone: data.billing?.phone || "",
-                address: data.billing?.address || "",
-                bankName: data.billing?.bankName || "",
-                accountName: data.billing?.accountName || "",
-                accountNumber: data.billing?.accountNumber || "",
-                branchCode: data.billing?.branchCode || "",
-                accountType: data.billing?.accountType || "",
-                paymentReferenceNote: data.billing?.paymentReferenceNote || "",
-            };
-
-            const milestones: InvoiceMilestone[] = (data.milestones || []).map((m: any) => ({
-                title: m.title || "",
-                description: m.description || "",
-                amount: Number(m.amount) || 0,
-                dueDate: m.dueDate?.toDate ? m.dueDate.toDate() : undefined,
-                status: (m.status as InvoiceMilestone["status"]) || "not_started",
-            }));
-
-            const deposit: DepositConfig = {
-                enabled: Boolean(data.deposit?.enabled),
-                ratePercent: Number(data.deposit?.ratePercent) || 0,
-                amount: Number(data.deposit?.amount) || 0,
-                dueDate: data.deposit?.dueDate?.toDate ? data.deposit.dueDate.toDate() : undefined,
-                notes: (data.deposit?.notes || "").trim() || "",
-            };
-
             return {
                 id: d.id,
                 projectId: data.projectId,
                 userId: data.userId,
                 invoiceNumber: data.invoiceNumber,
-
                 clientName: data.clientName || "",
                 clientEmail: data.clientEmail || "",
+                clientEmailLower: data.clientEmailLower || "", // ✅ Handle reading
                 clientAddress: data.clientAddress || "",
                 clientPhone: data.clientPhone || "",
-
-                billing,
-                milestones,
-                deposit,
-
-                items,
-
+                billing: {
+                    businessName: data.billing?.businessName || "Company",
+                    contactName: data.billing?.contactName || "",
+                    email: data.billing?.email || "",
+                    phone: data.billing?.phone || "",
+                    address: data.billing?.address || "",
+                    bankName: data.billing?.bankName || "",
+                    accountName: data.billing?.accountName || "",
+                    accountNumber: data.billing?.accountNumber || "",
+                    branchCode: data.billing?.branchCode || "",
+                    accountType: data.billing?.accountType || "",
+                    paymentReferenceNote: data.billing?.paymentReferenceNote || "",
+                },
+                milestones: (data.milestones || []).map((m: any) => ({
+                    title: m.title || "",
+                    description: m.description || "",
+                    amount: Number(m.amount) || 0,
+                    dueDate: m.dueDate?.toDate ? m.dueDate.toDate() : undefined,
+                    status: (m.status as InvoiceMilestone["status"]) || "not_started",
+                })),
+                deposit: {
+                    enabled: Boolean(data.deposit?.enabled),
+                    ratePercent: Number(data.deposit?.ratePercent) || 0,
+                    amount: Number(data.deposit?.amount) || 0,
+                    dueDate: data.deposit?.dueDate?.toDate ? data.deposit.dueDate.toDate() : undefined,
+                    notes: (data.deposit?.notes || "").trim() || "",
+                },
+                items: (data.items || []).map((it: any) => ({
+                    description: it.description || "",
+                    quantity: Number(it.quantity) || 0,
+                    unitPrice: Number(it.unitPrice) || 0,
+                    total: Number(it.total) || 0,
+                })),
                 subtotal: Number(data.subtotal) || 0,
                 taxRate: Number(data.taxRate) || 0,
                 taxAmount: Number(data.taxAmount) || 0,
                 totalAmount: Number(data.totalAmount) || 0,
-
                 status: data.status as InvoiceStatus,
-
                 dueDate: data.dueDate?.toDate ? data.dueDate.toDate() : new Date(),
                 createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(),
                 updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(),
@@ -364,76 +328,38 @@ export const updateInvoice = async (
 ): Promise<void> => {
     try {
         const ref = doc(db, "projects", projectId, "invoices", invoiceId);
+        const payload: any = { updatedAt: Timestamp.now() };
 
-        const payload: any = {
-            updatedAt: Timestamp.now(),
-        };
-
-        // client fields (write empty string if provided; otherwise don't touch)
         if (input.clientName !== undefined) payload.clientName = normalizeString(input.clientName);
-        if (input.clientEmail !== undefined) payload.clientEmail = normalizeString(input.clientEmail);
+        if (input.clientEmail !== undefined) {
+            payload.clientEmail = normalizeString(input.clientEmail);
+            payload.clientEmailLower = (input.clientEmail || "").trim().toLowerCase(); // ✅ Keep synced
+        }
         if (input.clientAddress !== undefined) payload.clientAddress = normalizeString(input.clientAddress);
         if (input.clientPhone !== undefined) payload.clientPhone = normalizeString(input.clientPhone);
-
         if (input.status !== undefined) payload.status = input.status;
-
         if (input.dueDate !== undefined) {
             const dd = toDateSafe(input.dueDate);
             payload.dueDate = dd ? Timestamp.fromDate(dd) : Timestamp.fromDate(new Date());
         }
+        if (input.billing !== undefined) payload.billing = buildBillingDoc(input.billing);
+        if (input.milestones !== undefined) payload.milestones = buildMilestonesDoc(input.milestones);
 
-        // billing (if provided, sanitize and write full billing object)
-        if (input.billing !== undefined) {
-            payload.billing = buildBillingDoc(input.billing);
-        }
-
-        // milestones (if provided, sanitize)
-        if (input.milestones !== undefined) {
-            payload.milestones = buildMilestonesDoc(input.milestones);
-        }
-
-        // deposit (if provided we must recalc deposit amount based on current/new totals)
-        // We will recalc after totals are known.
-        const depositInputProvided = input.deposit !== undefined;
-
-        // totals update ONLY if items or taxRate provided
-        const itemsProvided = input.items !== undefined;
-        const taxRateProvided = input.taxRate !== undefined;
-
-        if (itemsProvided || taxRateProvided || depositInputProvided) {
-            // We need to know final totals to compute deposit amount.
-            // For correctness, require items when changing deposit/taxRate, otherwise totals would be stale.
-            // If your UI always sends items on update, you're safe.
-            if (!itemsProvided && (taxRateProvided || depositInputProvided)) {
-                throw new Error("To update tax rate or deposit, please include invoice items in the update payload.");
+        if (input.items !== undefined || input.taxRate !== undefined || input.deposit !== undefined) {
+            if (input.items === undefined) {
+                throw new Error("To update totals or deposit, please include items in the payload.");
             }
+            const taxRate = Number(input.taxRate ?? 0) || 0;
+            const { normalizedItems, subtotal, taxAmount, totalAmount } = calcTotals(input.items, taxRate);
 
-            if (itemsProvided) {
-                const taxRate = Number(input.taxRate ?? 0) || 0;
-                const { normalizedItems, subtotal, taxAmount, totalAmount } = calcTotals(input.items!, taxRate);
+            payload.items = normalizedItems;
+            payload.subtotal = subtotal;
+            payload.taxRate = taxRate;
+            payload.taxAmount = taxAmount;
+            payload.totalAmount = totalAmount;
 
-                if (normalizedItems.length === 0) {
-                    throw new Error("Please keep at least one valid item.");
-                }
-
-                payload.items = normalizedItems;
-                payload.subtotal = subtotal;
-                payload.taxRate = taxRate;
-                payload.taxAmount = taxAmount;
-                payload.totalAmount = totalAmount;
-
-                // deposit recalculation if deposit provided OR deposit already exists but you want it consistent
-                if (depositInputProvided) {
-                    payload.deposit = buildDepositDoc(totalAmount, input.deposit);
-                }
-            } else {
-                // only deposit provided but items not provided - we blocked earlier
-            }
-        } else {
-            // taxRate could still be set alone (but rules might require totals consistency).
-            if (input.taxRate !== undefined) {
-                // safer to block unless items included
-                throw new Error("To update tax rate, include items so totals can be recalculated.");
+            if (input.deposit !== undefined) {
+                payload.deposit = buildDepositDoc(totalAmount, input.deposit);
             }
         }
 
