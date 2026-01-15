@@ -329,11 +329,11 @@ const ClientDetails: React.FC = () => {
                                 </div>
                             )}
 
-                            <div style={{ marginTop: "var(--spacing-lg)" }}>
-                                <Link className="btn btn-outline" to="/pipeline">
-                                    View Pipeline →
-                                </Link>
-                            </div>
+                            {/*<div style={{ marginTop: "var(--spacing-lg)" }}>*/}
+                            {/*    <Link className="btn btn-outline" to="/pipeline">*/}
+                            {/*        View Pipeline →*/}
+                            {/*    </Link>*/}
+                            {/*</div>*/}
                         </div>
                     </div>
                 </div>

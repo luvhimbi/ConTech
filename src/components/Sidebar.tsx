@@ -8,11 +8,9 @@ import {
     BarChart3,
     Settings,
     User,
-    GitBranch,
     ChevronLeft,
     ChevronRight,
     BookOpen,
-    HelpCircle
 } from "lucide-react";
 
 const Sidebar: React.FC = () => {
@@ -78,10 +76,10 @@ const Sidebar: React.FC = () => {
                         <LayoutDashboard style={iconSize} />
                         {!isCollapsed && <span>Dashboard</span>}
                     </NavLink>
-                    <NavLink to="/pipeline" style={link} title="Pipeline">
-                        <GitBranch style={iconSize} />
-                        {!isCollapsed && <span>Pipeline</span>}
-                    </NavLink>
+                    {/*<NavLink to="/pipeline" style={link} title="Pipeline">*/}
+                    {/*    <GitBranch style={iconSize} />*/}
+                    {/*    {!isCollapsed && <span>Pipeline</span>}*/}
+                    {/*</NavLink>*/}
                 </Section>
 
                 {/* Operations */}

@@ -12,8 +12,8 @@ import {
     deleteInvoice,
     updateInvoice,
     type Invoice,
-    type InvoiceItem,
     type InvoiceStatus,
+    type InvoiceTemplateId,
 } from "../services/invoiceService";
 
 import { getUserProjects } from "../services/projectService";
@@ -23,13 +23,21 @@ import { generateInvoicePDF } from "../utils/invoicePdfGenerator";
 
 type DepositRatePreset = 15 | 30 | 50 | "custom";
 
-type MilestoneStatus = "pending" | "in_progress" | "completed";
+type MilestoneStatus = "not_started" | "in_progress" | "completed";
+
+type MilestoneItem = {
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+};
+
 type Milestone = {
     title: string;
     description: string;
-    amount: number;
     dueDate: string; // yyyy-mm-dd
     status: MilestoneStatus;
+    items: MilestoneItem[];
 };
 
 type BillingDetails = {
@@ -47,16 +55,32 @@ type BillingDetails = {
     paymentReferenceNote: string;
 };
 
+const makeEmptyItem = (): MilestoneItem => ({
+    description: "",
+    quantity: 1,
+    unitPrice: 0,
+    total: 0,
+});
+
+const makeEmptyMilestone = (): Milestone => ({
+    title: "",
+    description: "",
+    dueDate: "",
+    status: "not_started",
+    items: [makeEmptyItem()],
+});
+
 const Invoices: React.FC = () => {
     const { projectId } = useParams<{ projectId: string }>();
     const navigate = useNavigate();
     const { showToast } = useToast();
 
-    // ✅ Clients (same logic as quotations)
+    // ✅ Clients
     const [clients, setClients] = useState<Client[]>([]);
     const [selectedClientId, setSelectedClientId] = useState<string>("");
     const [saveClient, setSaveClient] = useState(true);
-
+    const [page, setPage] = useState<number>(1);
+    const [pageSize, setPageSize] = useState<number>(6); // change default as you like
     const [user, setUser] = useState<User | null>(null);
     const [userProfile, setUserProfile] = useState<{
         firstName: string;
@@ -74,18 +98,19 @@ const Invoices: React.FC = () => {
     // edit mode
     const [editingId, setEditingId] = useState<string | null>(null);
 
-    // ✅ NEW: milestones state
-    const [milestones, setMilestones] = useState<Milestone[]>([
-        { title: "", description: "", amount: 0, dueDate: "", status: "pending" },
-    ]);
+    // ✅ NEW: Template selection
+    const [templateId, setTemplateId] = useState<InvoiceTemplateId>("classic");
 
-    // ✅ NEW: deposit state
+    // ✅ NEW: milestones now contain items
+    const [milestones, setMilestones] = useState<Milestone[]>([makeEmptyMilestone()]);
+
+    // ✅ Deposit
     const [depositEnabled, setDepositEnabled] = useState(false);
     const [depositPreset, setDepositPreset] = useState<DepositRatePreset>(15);
     const [depositCustomRate, setDepositCustomRate] = useState<number>(15);
     const [depositDueDate, setDepositDueDate] = useState<string>("");
 
-    // ✅ NEW: billing details
+    // ✅ Billing
     const [billing, setBilling] = useState<BillingDetails>({
         businessName: "",
         contactName: "",
@@ -101,12 +126,12 @@ const Invoices: React.FC = () => {
         paymentReferenceNote: "",
     });
 
+    // ✅ Client + invoice details (items removed from here)
     const [formData, setFormData] = useState<{
         clientName: string;
         clientEmail: string;
         clientAddress: string;
         clientPhone: string;
-        items: InvoiceItem[];
         taxRate: number;
         dueDate: string;
         status: InvoiceStatus;
@@ -115,7 +140,6 @@ const Invoices: React.FC = () => {
         clientEmail: "",
         clientAddress: "",
         clientPhone: "",
-        items: [{ description: "", quantity: 1, unitPrice: 0, total: 0 }],
         taxRate: 0,
         dueDate: "",
         status: "pending",
@@ -239,129 +263,10 @@ const Invoices: React.FC = () => {
         }
     };
 
-    const handleBillingChange = (
-        e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-    ) => {
+    const handleBillingChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setBilling((prev) => ({ ...prev, [name]: value }));
     };
-
-    const handleItemChange = (index: number, field: keyof InvoiceItem, value: string | number) => {
-        setFormData((prev) => {
-            const newItems = prev.items.map((it, i) => {
-                if (i !== index) return it;
-
-                const updated: InvoiceItem = {
-                    ...it,
-                    [field]: field === "description" ? String(value) : Number(value),
-                } as InvoiceItem;
-
-                const qty = Number(updated.quantity) || 0;
-                const price = Number(updated.unitPrice) || 0;
-                updated.total = qty * price;
-
-                return updated;
-            });
-
-            return { ...prev, items: newItems };
-        });
-    };
-
-    const addItem = () => {
-        setFormData((prev) => ({
-            ...prev,
-            items: [...prev.items, { description: "", quantity: 1, unitPrice: 0, total: 0 }],
-        }));
-    };
-
-    const removeItem = (index: number) => {
-        setFormData((prev) => {
-            const items = prev.items.filter((_, i) => i !== index);
-            return {
-                ...prev,
-                items: items.length ? items : [{ description: "", quantity: 1, unitPrice: 0, total: 0 }],
-            };
-        });
-    };
-
-    // ✅ Milestones UI handlers
-    const addMilestone = () => {
-        setMilestones((prev) => [
-            ...prev,
-            { title: "", description: "", amount: 0, dueDate: "", status: "pending" },
-        ]);
-    };
-
-    const removeMilestone = (index: number) => {
-        setMilestones((prev) => {
-            const updated = prev.filter((_, i) => i !== index);
-            return updated.length
-                ? updated
-                : [{ title: "", description: "", amount: 0, dueDate: "", status: "pending" }];
-        });
-    };
-
-    const handleMilestoneChange = (
-        index: number,
-        field: keyof Milestone,
-        value: string | number
-    ) => {
-        setMilestones((prev) =>
-            prev.map((m, i) =>
-                i === index
-                    ? {
-                        ...m,
-                        [field]:
-                            field === "amount"
-                                ? Number(value) || 0
-                                : (value as any),
-                    }
-                    : m
-            )
-        );
-    };
-
-    const resetForm = () => {
-        setFormData({
-            clientName: "",
-            clientEmail: "",
-            clientAddress: "",
-            clientPhone: "",
-            items: [{ description: "", quantity: 1, unitPrice: 0, total: 0 }],
-            taxRate: 0,
-            dueDate: "",
-            status: "pending",
-        });
-
-        setMilestones([{ title: "", description: "", amount: 0, dueDate: "", status: "pending" }]);
-
-        setDepositEnabled(false);
-        setDepositPreset(15);
-        setDepositCustomRate(15);
-        setDepositDueDate("");
-
-        setEditingId(null);
-        setSelectedClientId("");
-        setSaveClient(true);
-    };
-
-    const totals = useMemo(() => {
-        const subtotal = formData.items.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
-        const rate = Number(formData.taxRate) || 0;
-        const taxAmount = (subtotal * rate) / 100;
-        const totalAmount = subtotal + taxAmount;
-        return { subtotal, taxAmount, totalAmount };
-    }, [formData.items, formData.taxRate]);
-
-    const depositRate = useMemo(() => {
-        return depositPreset === "custom" ? Number(depositCustomRate) || 0 : depositPreset;
-    }, [depositPreset, depositCustomRate]);
-
-    const depositAmount = useMemo(() => {
-        if (!depositEnabled) return 0;
-        const rate = Number(depositRate) || 0;
-        return (totals.totalAmount * rate) / 100;
-    }, [depositEnabled, depositRate, totals.totalAmount]);
 
     // Select client -> autofill fields
     const handleSelectClient = (clientId: string) => {
@@ -381,58 +286,221 @@ const Invoices: React.FC = () => {
         }));
     };
 
+    // -------------------- MILESTONES + ITEMS HANDLERS --------------------
+    const addMilestone = () => {
+        setMilestones((prev) => [...prev, makeEmptyMilestone()]);
+    };
+
+    const removeMilestone = (milestoneIndex: number) => {
+        setMilestones((prev) => {
+            const updated = prev.filter((_, i) => i !== milestoneIndex);
+            return updated.length ? updated : [makeEmptyMilestone()];
+        });
+    };
+
+    const handleMilestoneChange = (
+        milestoneIndex: number,
+        field: keyof Omit<Milestone, "items">,
+        value: string
+    ) => {
+        setMilestones((prev) =>
+            prev.map((m, i) => {
+                if (i !== milestoneIndex) return m;
+                return {
+                    ...m,
+                    [field]: value,
+                } as Milestone;
+            })
+        );
+    };
+
+    const addItemToMilestone = (milestoneIndex: number) => {
+        setMilestones((prev) =>
+            prev.map((m, i) => {
+                if (i !== milestoneIndex) return m;
+                return {
+                    ...m,
+                    items: [...m.items, makeEmptyItem()],
+                };
+            })
+        );
+    };
+
+    const removeItemFromMilestone = (milestoneIndex: number, itemIndex: number) => {
+        setMilestones((prev) =>
+            prev.map((m, i) => {
+                if (i !== milestoneIndex) return m;
+                const updatedItems = m.items.filter((_, idx) => idx !== itemIndex);
+                return {
+                    ...m,
+                    items: updatedItems.length ? updatedItems : [makeEmptyItem()],
+                };
+            })
+        );
+    };
+
+    const handleMilestoneItemChange = (
+        milestoneIndex: number,
+        itemIndex: number,
+        field: keyof MilestoneItem,
+        value: string | number
+    ) => {
+        setMilestones((prev) =>
+            prev.map((m, i) => {
+                if (i !== milestoneIndex) return m;
+
+                const newItems = m.items.map((it, idx) => {
+                    if (idx !== itemIndex) return it;
+
+                    const updated: MilestoneItem = {
+                        ...it,
+                        [field]: field === "description" ? String(value) : Number(value),
+                    } as MilestoneItem;
+
+                    const qty = Number(updated.quantity) || 0;
+                    const price = Number(updated.unitPrice) || 0;
+                    updated.total = qty * price;
+
+                    return updated;
+                });
+
+                return { ...m, items: newItems };
+            })
+        );
+    };
+
+    // -------------------- RESET --------------------
+    const resetForm = () => {
+        setFormData({
+            clientName: "",
+            clientEmail: "",
+            clientAddress: "",
+            clientPhone: "",
+            taxRate: 0,
+            dueDate: "",
+            status: "pending",
+        });
+
+        setTemplateId("classic");
+        setMilestones([makeEmptyMilestone()]);
+
+        setDepositEnabled(false);
+        setDepositPreset(15);
+        setDepositCustomRate(15);
+        setDepositDueDate("");
+
+        setEditingId(null);
+        setSelectedClientId("");
+        setSaveClient(true);
+    };
+
+    // -------------------- TOTALS --------------------
+    const milestoneTotals = useMemo(() => {
+        const totalsPerMilestone = milestones.map((m) => {
+            const subtotal = (m.items || []).reduce((sum, it) => sum + (Number(it.total) || 0), 0);
+            return subtotal;
+        });
+        return totalsPerMilestone;
+    }, [milestones]);
+
+    const totalInvoices = invoices.length;
+
+    const totalPages = useMemo(() => {
+        return Math.max(1, Math.ceil(totalInvoices / pageSize));
+    }, [totalInvoices, pageSize]);
+
+    const paginatedInvoices = useMemo(() => {
+        const start = (page - 1) * pageSize;
+        return invoices.slice(start, start + pageSize);
+    }, [invoices, page, pageSize]);
+
+// keep page valid when invoices/pageSize change
+    useEffect(() => {
+        if (page > totalPages) setPage(totalPages);
+        if (page < 1) setPage(1);
+    }, [page, totalPages]);
+
+// optional: reset to first page when invoices list changes
+    useEffect(() => {
+        setPage(1);
+    }, [projectId, pageSize]);
+
+    const totals = useMemo(() => {
+        const subtotal = milestoneTotals.reduce((sum, ms) => sum + (Number(ms) || 0), 0);
+        const rate = Number(formData.taxRate) || 0;
+        const taxAmount = (subtotal * rate) / 100;
+        const totalAmount = subtotal + taxAmount;
+        return { subtotal, taxAmount, totalAmount };
+    }, [milestoneTotals, formData.taxRate]);
+
+    const depositRate = useMemo(() => {
+        return depositPreset === "custom" ? Number(depositCustomRate) || 0 : depositPreset;
+    }, [depositPreset, depositCustomRate]);
+
+    const depositAmount = useMemo(() => {
+        if (!depositEnabled) return 0;
+        const rate = Number(depositRate) || 0;
+        return (totals.totalAmount * rate) / 100;
+    }, [depositEnabled, depositRate, totals.totalAmount]);
+
     // -------------------- EDIT MODE --------------------
-    const startEdit = (inv: any) => {
+    const startEdit = (inv: Invoice) => {
         setEditingId(inv.id || null);
         setShowForm(true);
 
         setSelectedClientId("");
         setSaveClient(false);
 
+        setTemplateId((inv.templateId as InvoiceTemplateId) || "classic");
+
         setFormData({
             clientName: inv.clientName || "",
             clientEmail: inv.clientEmail || "",
-            clientAddress: inv.clientAddress || "",
-            clientPhone: inv.clientPhone || "",
-            items:
-                (inv.items || []).length > 0
-                    ? inv.items.map((it: any) => ({
-                        description: it.description || "",
-                        quantity: Number(it.quantity) || 1,
-                        unitPrice: Number(it.unitPrice) || 0,
-                        total: (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0),
-                    }))
-                    : [{ description: "", quantity: 1, unitPrice: 0, total: 0 }],
+            clientAddress: (inv.clientAddress as any) || "",
+            clientPhone: (inv.clientPhone as any) || "",
             taxRate: Number(inv.taxRate) || 0,
-            dueDate: inv.dueDate ? new Date(inv.dueDate).toISOString().slice(0, 10) : "",
+            dueDate: inv.dueDate ? new Date(inv.dueDate as any).toISOString().slice(0, 10) : "",
             status: (inv.status as InvoiceStatus) || "pending",
         });
 
-        // ✅ Load billing/milestones/deposit if present
-        if (inv.billing) {
+        // billing
+        if ((inv as any).billing) {
             setBilling((prev) => ({
                 ...prev,
-                ...inv.billing,
+                ...(inv as any).billing,
             }));
         }
 
-        if (Array.isArray(inv.milestones) && inv.milestones.length) {
+        // milestones -> UI milestones
+        const invMilestones = Array.isArray((inv as any).milestones) ? (inv as any).milestones : [];
+        if (invMilestones.length) {
             setMilestones(
-                inv.milestones.map((m: any) => ({
+                invMilestones.map((m: any) => ({
                     title: m.title || "",
                     description: m.description || "",
-                    amount: Number(m.amount) || 0,
                     dueDate: m.dueDate ? new Date(m.dueDate).toISOString().slice(0, 10) : "",
-                    status: (m.status as MilestoneStatus) || "pending",
+                    status: (m.status as MilestoneStatus) || "not_started",
+                    items: Array.isArray(m.items) && m.items.length
+                        ? m.items.map((it: any) => ({
+                            description: it.description || "",
+                            quantity: Number(it.quantity) || 1,
+                            unitPrice: Number(it.unitPrice) || 0,
+                            total: (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0),
+                        }))
+                        : [makeEmptyItem()],
                 }))
             );
+        } else {
+            setMilestones([makeEmptyMilestone()]);
         }
 
-        if (inv.deposit) {
-            setDepositEnabled(Boolean(inv.deposit.enabled));
-            setDepositDueDate(inv.deposit.dueDate ? new Date(inv.deposit.dueDate).toISOString().slice(0, 10) : "");
+        // deposit
+        const invDeposit = (inv as any).deposit;
+        if (invDeposit) {
+            setDepositEnabled(Boolean(invDeposit.enabled));
+            setDepositDueDate(invDeposit.dueDate ? new Date(invDeposit.dueDate).toISOString().slice(0, 10) : "");
 
-            const r = Number(inv.deposit.ratePercent) || 0;
+            const r = Number(invDeposit.ratePercent) || 0;
             if (r === 15 || r === 30 || r === 50) {
                 setDepositPreset(r);
                 setDepositCustomRate(r);
@@ -440,6 +508,11 @@ const Invoices: React.FC = () => {
                 setDepositPreset("custom");
                 setDepositCustomRate(r);
             }
+        } else {
+            setDepositEnabled(false);
+            setDepositPreset(15);
+            setDepositCustomRate(15);
+            setDepositDueDate("");
         }
     };
 
@@ -453,29 +526,34 @@ const Invoices: React.FC = () => {
             return;
         }
 
-        const cleanedItems = formData.items
-            .map((it) => ({
-                description: (it.description || "").trim(),
-                quantity: Number(it.quantity) || 0,
-                unitPrice: Number(it.unitPrice) || 0,
-                total: (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0),
-            }))
-            .filter((it) => it.description.length > 0);
+        // Clean milestones + items
+        const cleanedMilestones = (milestones || [])
+            .map((m) => {
+                const title = (m.title || "").trim();
+                const description = (m.description || "").trim();
 
-        if (cleanedItems.length === 0) {
-            showToast("Please add at least 1 item with a description.", "error");
+                const cleanedItems = (m.items || [])
+                    .map((it) => ({
+                        description: (it.description || "").trim(),
+                        quantity: Number(it.quantity) || 0,
+                        unitPrice: Number(it.unitPrice) || 0,
+                    }))
+                    .filter((it) => it.description.length > 0);
+
+                return {
+                    title,
+                    description,
+                    dueDate: m.dueDate ? new Date(m.dueDate) : undefined,
+                    status: (m.status || "not_started") as MilestoneStatus,
+                    items: cleanedItems,
+                };
+            })
+            .filter((m) => m.title.length > 0 && m.items.length > 0);
+
+        if (cleanedMilestones.length === 0) {
+            showToast("Please add at least 1 milestone with at least 1 item.", "error");
             return;
         }
-
-        const cleanedMilestones = milestones
-            .map((m) => ({
-                title: (m.title || "").trim(),
-                description: (m.description || "").trim(),
-                amount: Number(m.amount) || 0,
-                dueDate: m.dueDate ? new Date(m.dueDate) : undefined,
-                status: m.status,
-            }))
-            .filter((m) => m.title.length > 0);
 
         setSaving(true);
         try {
@@ -499,6 +577,8 @@ const Invoices: React.FC = () => {
             }
 
             const payloadExtra = {
+                templateId,
+
                 billing: {
                     businessName: billing.businessName.trim(),
                     contactName: billing.contactName.trim(),
@@ -512,17 +592,12 @@ const Invoices: React.FC = () => {
                     accountType: billing.accountType.trim(),
                     paymentReferenceNote: billing.paymentReferenceNote.trim(),
                 },
-                milestones: cleanedMilestones.map((m) => ({
-                    title: m.title,
-                    description: m.description,
-                    amount: m.amount,
-                    dueDate: m.dueDate,
-                    status: m.status,
-                })),
+
+                milestones: cleanedMilestones,
+
                 deposit: {
                     enabled: depositEnabled,
                     ratePercent: Number(depositRate) || 0,
-                    amount: depositEnabled ? Number(depositAmount) || 0 : 0,
                     dueDate: depositDueDate ? new Date(depositDueDate) : undefined,
                 },
             };
@@ -533,11 +608,6 @@ const Invoices: React.FC = () => {
                     clientEmail: formData.clientEmail.trim(),
                     clientAddress: formData.clientAddress.trim() || undefined,
                     clientPhone: formData.clientPhone.trim() || undefined,
-                    items: cleanedItems.map((i) => ({
-                        description: i.description,
-                        quantity: i.quantity,
-                        unitPrice: i.unitPrice,
-                    })),
                     taxRate: Number(formData.taxRate) || 0,
                     dueDate: formData.dueDate ? new Date(formData.dueDate) : undefined,
                     status: formData.status,
@@ -551,11 +621,6 @@ const Invoices: React.FC = () => {
                     clientEmail: formData.clientEmail.trim(),
                     clientAddress: formData.clientAddress.trim() || undefined,
                     clientPhone: formData.clientPhone.trim() || undefined,
-                    items: cleanedItems.map((i) => ({
-                        description: i.description,
-                        quantity: i.quantity,
-                        unitPrice: i.unitPrice,
-                    })),
                     taxRate: Number(formData.taxRate) || 0,
                     dueDate: formData.dueDate ? new Date(formData.dueDate) : undefined,
                     status: formData.status,
@@ -589,6 +654,77 @@ const Invoices: React.FC = () => {
             showToast("PDF generated successfully!", "success");
         } catch (error: any) {
             showToast("Failed to generate PDF: " + (error?.message ?? "Unknown error"), "error");
+        }
+    };
+
+    const handlePreviewPDF = () => {
+        if (!userProfile) {
+            showToast("User profile not loaded", "error");
+            return;
+        }
+
+        // Create a preview object without saving to Firestore
+        const previewInvoice: any = {
+            invoiceNumber: editingId ? "PREVIEW" : "PREVIEW",
+            createdAt: new Date(),
+            dueDate: formData.dueDate ? new Date(formData.dueDate) : new Date(),
+            status: formData.status,
+
+            templateId,
+
+            clientName: formData.clientName,
+            clientEmail: formData.clientEmail,
+            clientAddress: formData.clientAddress,
+            clientPhone: formData.clientPhone,
+
+            billing: {
+                ...billing,
+            },
+
+            milestones: milestones.map((m, idx) => {
+                const items = (m.items || []).map((it) => ({
+                    description: it.description,
+                    quantity: Number(it.quantity) || 0,
+                    unitPrice: Number(it.unitPrice) || 0,
+                    total: (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0),
+                }));
+                const subtotal = items.reduce((sum, it) => sum + (Number(it.total) || 0), 0);
+
+                return {
+                    title: m.title || `Milestone ${idx + 1}`,
+                    description: m.description,
+                    dueDate: m.dueDate ? new Date(m.dueDate) : undefined,
+                    status: m.status,
+                    items,
+                    subtotal,
+                };
+            }),
+        };
+
+        // compute totals to satisfy PDF generator
+        const subtotal = (previewInvoice.milestones || []).reduce((sum: number, ms: any) => sum + (Number(ms.subtotal) || 0), 0);
+        const taxRate = Number(formData.taxRate) || 0;
+        const taxAmount = (subtotal * taxRate) / 100;
+        const totalAmount = subtotal + taxAmount;
+
+        previewInvoice.subtotal = subtotal;
+        previewInvoice.taxRate = taxRate;
+        previewInvoice.taxAmount = taxAmount;
+        previewInvoice.totalAmount = totalAmount;
+
+        previewInvoice.deposit = {
+            enabled: depositEnabled,
+            ratePercent: Number(depositRate) || 0,
+            amount: depositEnabled ? (totalAmount * (Number(depositRate) || 0)) / 100 : 0,
+            dueDate: depositDueDate ? new Date(depositDueDate) : undefined,
+        };
+
+
+        try {
+            generateInvoicePDF(previewInvoice, userProfile, project?.name);
+            showToast("Preview PDF generated!", "success");
+        } catch (error: any) {
+            showToast("Failed to generate preview PDF: " + (error?.message ?? "Unknown error"), "error");
         }
     };
 
@@ -798,6 +934,32 @@ const Invoices: React.FC = () => {
                                     <div className="quotation-form-section">
                                         <h4 className="quotation-section-title">Invoice Details</h4>
 
+                                        {/* ✅ Template Selector */}
+                                        <div className="form-group">
+                                            <label className="form-label">Template</label>
+                                            <select
+                                                className="form-control"
+                                                value={templateId}
+                                                onChange={(e) => setTemplateId(e.target.value as InvoiceTemplateId)}
+                                                disabled={saving}
+                                            >
+                                                <option value="classic">Classic</option>
+                                                <option value="modern">Modern</option>
+                                                <option value="minimal">Minimal</option>
+                                            </select>
+                                            <div style={{ marginTop: 8 }}>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-outline"
+                                                    onClick={handlePreviewPDF}
+                                                    style={{ fontSize: "var(--font-size-xs)", padding: "6px 12px" }}
+                                                    disabled={saving}
+                                                >
+                                                    👁️ Preview PDF
+                                                </button>
+                                            </div>
+                                        </div>
+
                                         <div className="form-group">
                                             <label className="form-label">Status</label>
                                             <select
@@ -840,7 +1002,7 @@ const Invoices: React.FC = () => {
                                             />
                                         </div>
 
-                                        {/* ✅ Deposit UI */}
+                                        {/* Deposit */}
                                         <div className="form-group" style={{ marginTop: "var(--spacing-lg)" }}>
                                             <h4 className="quotation-section-title" style={{ marginBottom: "var(--spacing-sm)" }}>
                                                 Deposit
@@ -912,83 +1074,203 @@ const Invoices: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* ITEMS */}
+                                {/* ✅ MILESTONES + NESTED ITEMS */}
                                 <div className="quotation-items-section">
-                                    <div className="quotation-items-header">
-                                        <h4 className="quotation-section-title">Items</h4>
+                                    <div className="quotation-items-header" style={{ alignItems: "center" }}>
+                                        <h4 className="quotation-section-title">Milestones / Phases</h4>
                                         <button
                                             type="button"
                                             className="btn btn-outline"
-                                            onClick={addItem}
+                                            onClick={addMilestone}
                                             style={{ fontSize: "var(--font-size-xs)", padding: "6px 12px" }}
                                             disabled={saving}
                                         >
-                                            + Add Item
+                                            + Add Milestone
                                         </button>
                                     </div>
 
-                                    <div className="quotation-items-table">
-                                        <div className="quotation-items-header-row">
-                                            <div style={{ flex: "2" }}>Description</div>
-                                            <div style={{ width: "80px" }}>Qty</div>
-                                            <div style={{ width: "100px" }}>Unit Price</div>
-                                            <div style={{ width: "100px" }}>Total</div>
-                                            <div style={{ width: "40px" }}></div>
-                                        </div>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                                        {milestones.map((m, milestoneIndex) => {
+                                            const msSubtotal = milestoneTotals[milestoneIndex] || 0;
 
-                                        {formData.items.map((item, index) => (
-                                            <div key={index} className="quotation-item-row">
-                                                <input
-                                                    type="text"
-                                                    className="form-control"
-                                                    value={item.description}
-                                                    onChange={(e) => handleItemChange(index, "description", e.target.value)}
-                                                    placeholder="Item description"
-                                                    style={{ flex: "2", marginRight: "var(--spacing-sm)" }}
-                                                    disabled={saving}
-                                                />
+                                            return (
+                                                <div
+                                                    key={milestoneIndex}
+                                                    style={{
+                                                        border: "1px solid var(--color-border-light)",
+                                                        borderRadius: 12,
+                                                        padding: 12,
+                                                        background: "var(--color-bg)",
+                                                    }}
+                                                >
+                                                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                                                        <div style={{ flex: 1, minWidth: 220 }}>
+                                                            <div className="form-group">
+                                                                <label className="form-label">Title *</label>
+                                                                <input
+                                                                    className="form-control"
+                                                                    value={m.title}
+                                                                    onChange={(e) => handleMilestoneChange(milestoneIndex, "title", e.target.value)}
+                                                                    placeholder="e.g. Phase 1: Foundation"
+                                                                    disabled={saving}
+                                                                />
+                                                            </div>
 
-                                                <input
-                                                    type="number"
-                                                    className="form-control"
-                                                    value={item.quantity}
-                                                    onChange={(e) => handleItemChange(index, "quantity", e.target.value)}
-                                                    min="1"
-                                                    style={{ width: "80px", marginRight: "var(--spacing-sm)" }}
-                                                    disabled={saving}
-                                                />
+                                                            <div className="form-group">
+                                                                <label className="form-label">Description</label>
+                                                                <textarea
+                                                                    className="form-control"
+                                                                    value={m.description}
+                                                                    onChange={(e) => handleMilestoneChange(milestoneIndex, "description", e.target.value)}
+                                                                    rows={2}
+                                                                    placeholder="Short description"
+                                                                    disabled={saving}
+                                                                />
+                                                            </div>
+                                                        </div>
 
-                                                <input
-                                                    type="number"
-                                                    className="form-control"
-                                                    value={item.unitPrice}
-                                                    onChange={(e) => handleItemChange(index, "unitPrice", e.target.value)}
-                                                    min="0"
-                                                    step="0.01"
-                                                    style={{ width: "100px", marginRight: "var(--spacing-sm)" }}
-                                                    disabled={saving}
-                                                />
+                                                        <div style={{ width: 240, minWidth: 220 }}>
+                                                            <div className="form-group">
+                                                                <label className="form-label">Due Date</label>
+                                                                <input
+                                                                    type="date"
+                                                                    className="form-control"
+                                                                    value={m.dueDate}
+                                                                    onChange={(e) => handleMilestoneChange(milestoneIndex, "dueDate", e.target.value)}
+                                                                    disabled={saving}
+                                                                />
+                                                            </div>
 
-                                                <div style={{ width: "100px", padding: "8px 12px", fontSize: "var(--font-size-sm)" }}>
-                                                    R{(Number(item.total) || 0).toFixed(2)}
+                                                            <div className="form-group">
+                                                                <label className="form-label">Status</label>
+                                                                <select
+                                                                    className="form-control"
+                                                                    value={m.status}
+                                                                    onChange={(e) => handleMilestoneChange(milestoneIndex, "status", e.target.value)}
+                                                                    disabled={saving}
+                                                                >
+                                                                    <option value="not_started">Not started</option>
+                                                                    <option value="in_progress">In progress</option>
+                                                                    <option value="completed">Completed</option>
+                                                                </select>
+                                                            </div>
+
+                                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+                                                                <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-secondary)" }}>
+                                                                    Milestone Total:
+                                                                </div>
+                                                                <div style={{ fontWeight: 700 }}>
+                                                                    R{msSubtotal.toFixed(2)}
+                                                                </div>
+                                                            </div>
+
+                                                            {milestones.length > 1 && (
+                                                                <div style={{ marginTop: 10 }}>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-outline"
+                                                                        onClick={() => removeMilestone(milestoneIndex)}
+                                                                        style={{ fontSize: "var(--font-size-xs)", padding: "6px 12px" }}
+                                                                        disabled={saving}
+                                                                    >
+                                                                        🗑️ Remove Milestone
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Items for this milestone */}
+                                                    <div style={{ marginTop: 12 }}>
+                                                        <div className="quotation-items-header" style={{ alignItems: "center" }}>
+                                                            <h4 className="quotation-section-title" style={{ margin: 0 }}>
+                                                                Items
+                                                            </h4>
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-outline"
+                                                                onClick={() => addItemToMilestone(milestoneIndex)}
+                                                                style={{ fontSize: "var(--font-size-xs)", padding: "6px 12px" }}
+                                                                disabled={saving}
+                                                            >
+                                                                + Add Item
+                                                            </button>
+                                                        </div>
+
+                                                        <div className="quotation-items-table">
+                                                            <div className="quotation-items-header-row">
+                                                                <div style={{ flex: "2" }}>Description</div>
+                                                                <div style={{ width: "80px" }}>Qty</div>
+                                                                <div style={{ width: "110px" }}>Unit Price</div>
+                                                                <div style={{ width: "110px" }}>Total</div>
+                                                                <div style={{ width: "40px" }}></div>
+                                                            </div>
+
+                                                            {m.items.map((it, itemIndex) => (
+                                                                <div key={itemIndex} className="quotation-item-row">
+                                                                    <input
+                                                                        type="text"
+                                                                        className="form-control"
+                                                                        value={it.description}
+                                                                        onChange={(e) =>
+                                                                            handleMilestoneItemChange(milestoneIndex, itemIndex, "description", e.target.value)
+                                                                        }
+                                                                        placeholder="Item description"
+                                                                        style={{ flex: "2", marginRight: "var(--spacing-sm)" }}
+                                                                        disabled={saving}
+                                                                    />
+
+                                                                    <input
+                                                                        type="number"
+                                                                        className="form-control"
+                                                                        value={it.quantity}
+                                                                        onChange={(e) =>
+                                                                            handleMilestoneItemChange(milestoneIndex, itemIndex, "quantity", e.target.value)
+                                                                        }
+                                                                        min="1"
+                                                                        style={{ width: "80px", marginRight: "var(--spacing-sm)" }}
+                                                                        disabled={saving}
+                                                                    />
+
+                                                                    <input
+                                                                        type="number"
+                                                                        className="form-control"
+                                                                        value={it.unitPrice}
+                                                                        onChange={(e) =>
+                                                                            handleMilestoneItemChange(milestoneIndex, itemIndex, "unitPrice", e.target.value)
+                                                                        }
+                                                                        min="0"
+                                                                        step="0.01"
+                                                                        style={{ width: "110px", marginRight: "var(--spacing-sm)" }}
+                                                                        disabled={saving}
+                                                                    />
+
+                                                                    <div style={{ width: "110px", padding: "8px 12px", fontSize: "var(--font-size-sm)" }}>
+                                                                        R{(Number(it.total) || 0).toFixed(2)}
+                                                                    </div>
+
+                                                                    {m.items.length > 1 && (
+                                                                        <button
+                                                                            type="button"
+                                                                            className="btn btn-outline"
+                                                                            onClick={() => removeItemFromMilestone(milestoneIndex, itemIndex)}
+                                                                            style={{ width: "40px", padding: "6px", fontSize: "var(--font-size-xs)" }}
+                                                                            disabled={saving}
+                                                                        >
+                                                                            ×
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
                                                 </div>
-
-                                                {formData.items.length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-outline"
-                                                        onClick={() => removeItem(index)}
-                                                        style={{ width: "40px", padding: "6px", fontSize: "var(--font-size-xs)" }}
-                                                        disabled={saving}
-                                                    >
-                                                        ×
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
 
-                                    <div className="quotation-totals">
+                                    {/* Invoice totals */}
+                                    <div className="quotation-totals" style={{ marginTop: 16 }}>
                                         <div className="quotation-total-row">
                                             <span>Subtotal:</span>
                                             <span>R{totals.subtotal.toFixed(2)}</span>
@@ -1011,102 +1293,7 @@ const Invoices: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* ✅ Milestones / Phases */}
-                                <div className="quotation-items-section">
-                                    <div className="quotation-items-header">
-                                        <h4 className="quotation-section-title">Milestones / Phases</h4>
-                                        <button
-                                            type="button"
-                                            className="btn btn-outline"
-                                            onClick={addMilestone}
-                                            style={{ fontSize: "var(--font-size-xs)", padding: "6px 12px" }}
-                                            disabled={saving}
-                                        >
-                                            + Add Phase
-                                        </button>
-                                    </div>
-
-                                    <div className="quotation-items-table">
-                                        <div className="quotation-items-header-row">
-                                            <div style={{ width: "160px" }}>Title</div>
-                                            <div style={{ flex: "2" }}>Description</div>
-                                            <div style={{ width: "110px" }}>Amount</div>
-                                            <div style={{ width: "140px" }}>Due Date</div>
-                                            <div style={{ width: "120px" }}>Status</div>
-                                            <div style={{ width: "40px" }}></div>
-                                        </div>
-
-                                        {milestones.map((m, index) => (
-                                            <div key={index} className="quotation-item-row" style={{ alignItems: "flex-start" }}>
-                                                <input
-                                                    type="text"
-                                                    className="form-control"
-                                                    value={m.title}
-                                                    onChange={(e) => handleMilestoneChange(index, "title", e.target.value)}
-                                                    placeholder="Phase title"
-                                                    style={{ width: "160px", marginRight: "var(--spacing-sm)" }}
-                                                    disabled={saving}
-                                                />
-
-                                                <textarea
-                                                    className="form-control"
-                                                    value={m.description}
-                                                    onChange={(e) => handleMilestoneChange(index, "description", e.target.value)}
-                                                    placeholder="Short description"
-                                                    rows={2}
-                                                    style={{ flex: "2", marginRight: "var(--spacing-sm)" }}
-                                                    disabled={saving}
-                                                />
-
-                                                <input
-                                                    type="number"
-                                                    className="form-control"
-                                                    value={m.amount}
-                                                    onChange={(e) => handleMilestoneChange(index, "amount", e.target.value)}
-                                                    min="0"
-                                                    step="0.01"
-                                                    style={{ width: "110px", marginRight: "var(--spacing-sm)" }}
-                                                    disabled={saving}
-                                                />
-
-                                                <input
-                                                    type="date"
-                                                    className="form-control"
-                                                    value={m.dueDate}
-                                                    onChange={(e) => handleMilestoneChange(index, "dueDate", e.target.value)}
-                                                    style={{ width: "140px", marginRight: "var(--spacing-sm)" }}
-                                                    disabled={saving}
-                                                />
-
-                                                <select
-                                                    className="form-control"
-                                                    value={m.status}
-                                                    onChange={(e) => handleMilestoneChange(index, "status", e.target.value)}
-                                                    style={{ width: "120px", marginRight: "var(--spacing-sm)" }}
-                                                    disabled={saving}
-                                                >
-                                                    <option value="pending">Pending</option>
-                                                    <option value="in_progress">In Progress</option>
-                                                    <option value="completed">Completed</option>
-                                                </select>
-
-                                                {milestones.length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-outline"
-                                                        onClick={() => removeMilestone(index)}
-                                                        style={{ width: "40px", padding: "6px", fontSize: "var(--font-size-xs)" }}
-                                                        disabled={saving}
-                                                    >
-                                                        ×
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* ✅ Billing Details */}
+                                {/* Billing Details */}
                                 <div className="quotation-items-section">
                                     <h4 className="quotation-section-title">Billing Details (Your Business)</h4>
 
@@ -1232,7 +1419,6 @@ const Invoices: React.FC = () => {
                                                 </select>
                                             </div>
 
-
                                             <div className="form-group">
                                                 <label className="form-label">Payment Reference Note</label>
                                                 <input
@@ -1294,7 +1480,7 @@ const Invoices: React.FC = () => {
                             </h3>
 
                             <div className="quotation-list">
-                                {invoices.map((inv) => (
+                                {paginatedInvoices.map((inv) => (
                                     <div key={inv.id} className="quotation-card">
                                         <div className="quotation-card-header">
                                             <div>
@@ -1328,20 +1514,31 @@ const Invoices: React.FC = () => {
                                                 >
                                                     {inv.clientEmail}
                                                 </p>
+
+                                                <p
+                                                    style={{
+                                                        margin: 0,
+                                                        fontSize: "var(--font-size-xs)",
+                                                        color: "var(--color-text-muted)",
+                                                        marginTop: "var(--spacing-xs)",
+                                                    }}
+                                                >
+                                                    Template: {(inv as any).templateId || "classic"}
+                                                </p>
                                             </div>
 
                                             <div className="quotation-card-actions">
-                        <span className={`quotation-status quotation-status-${inv.status}`}>
-                          {inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}
-                        </span>
+            <span className={`quotation-status quotation-status-${inv.status}`}>
+              {inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}
+            </span>
                                             </div>
                                         </div>
 
                                         <div className="quotation-card-details">
                                             <div>
-                        <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>
-                          Total:
-                        </span>
+            <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>
+              Total:
+            </span>
                                                 <span
                                                     style={{
                                                         fontSize: "var(--font-size-lg)",
@@ -1349,8 +1546,8 @@ const Invoices: React.FC = () => {
                                                         marginLeft: "var(--spacing-sm)",
                                                     }}
                                                 >
-                          R{(Number((inv as any).totalAmount) || 0).toFixed(2)}
-                        </span>
+              R{(Number((inv as any).totalAmount) || 0).toFixed(2)}
+            </span>
                                             </div>
 
                                             <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>
@@ -1380,7 +1577,7 @@ const Invoices: React.FC = () => {
 
                                             <button
                                                 className="btn btn-outline"
-                                                onClick={() => startEdit(inv as any)}
+                                                onClick={() => startEdit(inv)}
                                                 style={{ fontSize: "var(--font-size-xs)", padding: "6px 12px" }}
                                             >
                                                 ✏️ Edit
@@ -1397,7 +1594,94 @@ const Invoices: React.FC = () => {
                                     </div>
                                 ))}
                             </div>
+
+                            {/* Pagination Controls */}
+                            <div
+                                style={{
+                                    marginTop: "var(--spacing-lg)",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    gap: "12px",
+                                    flexWrap: "wrap",
+                                }}
+                            >
+                                {/* Page size */}
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+      <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>
+        Rows per page:
+      </span>
+
+                                    <select
+                                        className="form-control"
+                                        value={pageSize}
+                                        onChange={(e) => setPageSize(Number(e.target.value) || 6)}
+                                        style={{ width: "120px", fontSize: "var(--font-size-sm)" }}
+                                    >
+                                        <option value={3}>3</option>
+                                        <option value={6}>6</option>
+                                        <option value={10}>10</option>
+                                        <option value={20}>20</option>
+                                    </select>
+                                </div>
+
+                                {/* Info */}
+                                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>
+                                    Showing <strong>{totalInvoices === 0 ? 0 : (page - 1) * pageSize + 1}</strong> to{" "}
+                                    <strong>{Math.min(page * pageSize, totalInvoices)}</strong> of{" "}
+                                    <strong>{totalInvoices}</strong>
+                                </div>
+
+                                {/* Buttons */}
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                    <button
+                                        className="btn btn-outline"
+                                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                        disabled={page <= 1}
+                                        style={{ fontSize: "var(--font-size-xs)", padding: "6px 12px" }}
+                                    >
+                                        ← Prev
+                                    </button>
+
+                                    {/* Page numbers */}
+                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                        {Array.from({ length: totalPages }).map((_, idx) => {
+                                            const p = idx + 1;
+
+                                            const isEdge = p === 1 || p === totalPages;
+                                            const isNear = Math.abs(p - page) <= 1;
+
+                                            if (!isEdge && !isNear) return null;
+
+                                            return (
+                                                <button
+                                                    key={p}
+                                                    className={page === p ? "btn btn-primary" : "btn btn-outline"}
+                                                    onClick={() => setPage(p)}
+                                                    style={{
+                                                        fontSize: "var(--font-size-xs)",
+                                                        padding: "6px 10px",
+                                                        minWidth: "40px",
+                                                    }}
+                                                >
+                                                    {p}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
+                                    <button
+                                        className="btn btn-outline"
+                                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                                        disabled={page >= totalPages}
+                                        style={{ fontSize: "var(--font-size-xs)", padding: "6px 12px" }}
+                                    >
+                                        Next →
+                                    </button>
+                                </div>
+                            </div>
                         </div>
+
                     )}
                 </div>
             </div>

@@ -14,7 +14,7 @@ import ProjectQuotations from "./components/ProjectQuotations";
 import Invoices from "./components/Invoices";
 import Clients from "./components/Clients";
 import ClientDetails from "./components/ClientDetails";
-import Pipeline from "./components/Pipeline";
+
 import OfflineBanner from "./components/OfflineBanner";
 
 import WebsiteHome from "./pages/website/Home";
@@ -71,7 +71,6 @@ const App: React.FC = () => {
                                 <Route path="/dashboard" element={<Dashboard />} />
                                 <Route path="/clients" element={<Clients />} />
                                 <Route path="/clients/:clientId" element={<ClientDetails />} />
-                                <Route path="/pipeline" element={<Pipeline />} />
                                 <Route path="/projects" element={<Projects />} />
                                 <Route path="/projects/:projectId" element={<ProjectDetail />} />
                                 <Route path="/projects/:projectId/quotations" element={<ProjectQuotations />} />
