@@ -1,73 +1,96 @@
-# React + TypeScript + Vite
+# ConTech Client, Quotation, Invoice Manager
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A React + TypeScript + Vite web app for small to medium construction and service businesses to manage clients (CRM-lite), projects, quotations, invoices, and client history. The app uses Firebase Authentication and Cloud Firestore as the backend.
 
-Currently, two official plugins are available:
+## Table of Contents
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Overview
+- Features
+- Tech Stack
+- Project Structure
+- Prerequisites
+- Firebase Setup
+    - Create Firebase Project
+    - Enable Authentication
+    - Create Firestore Database
+    - Add Web App and Get Config
+- Environment Variables
+- Firestore Data Model
+    - Users
+    - Clients
+    - Projects
+    - Quotations
+    - Invoices
+- Firestore Security Rules
+- Local Development
+- Build and Deploy
+    - Build
+    - Deploy to Netlify
+- Common Issues and Fixes
+    - Firestore Permission Denied
+    - Unsupported field value: undefined
+    - Collection group query requires index
+    - Client history not showing
+- Scripts
+- Contributing
+- License
 
-## React Compiler
+## Overview
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+ConTech is a lightweight business management tool designed to help contractors and small businesses keep track of:
 
-## Expanding the ESLint configuration
+- Clients and notes
+- Projects
+- Quotations and invoices per project
+- Client history (all quotations and invoices associated with a client)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+The frontend is built with React + TypeScript, bundled with Vite. Data is stored in Firestore and protected by Firestore Security Rules. Authentication is handled via Firebase Authentication.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Features
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### Client Management (CRM-lite)
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- Client directory
+- Client profile page
+- Tags (VIP, slow payer, urgent)
+- Notes (site access rules, preferred contact)
+- Client history (all quotations and invoices linked to the client email)
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Projects
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- Create and manage projects
+- Each project holds its own quotations and invoices subcollections
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+### Quotations
+
+- Create, update, delete quotations
+- Store client details on quotations
+- Status tracking (draft, sent, accepted, rejected)
+
+### Invoices
+
+- Create, update, delete invoices
+- Store client details on invoices
+- Billing details (business info and payment details)
+- Deposit configuration (optional)
+- Milestones (optional)
+- Status tracking (pending, paid, cancelled)
+- PDF generation
+
+### Client History (Cross-Project)
+
+- Displays all invoices and quotations across all projects for a specific client
+- Implemented using Firestore `collectionGroup` queries
+- Recommended to store `clientEmailLower` for consistent matching
+
+## Tech Stack
+
+- React
+- TypeScript
+- Vite
+- Firebase Authentication
+- Cloud Firestore
+- jsPDF + jspdf-autotable (PDF generation)
+
+## Project Structure
+

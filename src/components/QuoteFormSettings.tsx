@@ -260,14 +260,13 @@ const QuoteFormSettings: React.FC = () => {
     const navigate = useNavigate();
 
     const [companyName, setCompanyName] = useState("");
-    const [slug, setSlug] = useState(""); // Store the business slug
+    const [slug, setSlug] = useState("");
     const [fields, setFields] = useState<Field[]>([]);
     const [saving, setSaving] = useState(false);
     const [copied, setCopied] = useState(false);
 
-    // Build the public link using the slug if available, otherwise fallback to uid
-    const displayIdentifier = slug || uid;
-    const publicFormUrl = `${window.location.origin}/q/${displayIdentifier}`;
+    // Build the public link: Priority to slug, fallback to uid
+    const publicFormUrl = `${window.location.origin}/q/${slug || uid}`;
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -284,7 +283,7 @@ const QuoteFormSettings: React.FC = () => {
             if (userSnap.exists()) {
                 const userData = userSnap.data();
                 setCompanyName(userData.companyName || "");
-                setSlug(userData.slug || ""); // Fetch slug for the public link
+                setSlug(userData.slug || "");
             }
 
             const snap = await getDoc(doc(db, "users", uid, "forms", "quoteRequest"));
@@ -317,14 +316,12 @@ const QuoteFormSettings: React.FC = () => {
     const copyToClipboard = () => {
         navigator.clipboard.writeText(publicFormUrl);
         setCopied(true);
-        toast.success("Link copied to clipboard");
+        toast.success("Link copied");
         setTimeout(() => setCopied(false), 2000);
     };
 
     const onDragEnd = (e: DragEndEvent) => {
-        if (!e.over) return;
-        if (e.active.id === e.over.id) return;
-
+        if (!e.over || e.active.id === e.over.id) return;
         setFields((prev) => {
             const oldIndex = prev.findIndex(f => f.id === e.active.id);
             const newIndex = prev.findIndex(f => f.id === e.over!.id);
@@ -341,7 +338,6 @@ const QuoteFormSettings: React.FC = () => {
                 </p>
             </div>
 
-            {/* Public Link Section */}
             <div style={{
                 background: 'var(--color-primary-light)',
                 padding: '20px',
@@ -368,7 +364,7 @@ const QuoteFormSettings: React.FC = () => {
                     </button>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-                    Clients will access your form via this unique link.
+                    {slug ? "Using your custom business slug." : "No slug set: using your unique ID. Go to Profile to set a slug."}
                 </div>
             </div>
 

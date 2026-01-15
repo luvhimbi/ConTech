@@ -1,13 +1,16 @@
+// src/components/Topbar.tsx
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { auth } from "../firebaseConfig";
+import { auth, db } from "../firebaseConfig"; // Ensure db is imported
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
-import { LogOut, LogIn } from "lucide-react";
+import { collection, query, where, onSnapshot } from "firebase/firestore"; // Import Firestore functions
+import { LogOut, LogIn, Bell } from "lucide-react";
 import BrandLink from "./BrandLink";
 import toast from "react-hot-toast";
 
 const Topbar: React.FC = () => {
     const [user, setUser] = useState<User | null>(null);
+    const [unreadCount, setUnreadCount] = useState(0);
     const navigate = useNavigate();
 
     // Listen for auth state changes
@@ -17,6 +20,25 @@ const Topbar: React.FC = () => {
         });
         return () => unsubscribe();
     }, []);
+
+    // Listen for Notification Count (Only when logged in)
+    useEffect(() => {
+        if (!user) {
+            setUnreadCount(0);
+            return;
+        }
+
+        const q = query(
+            collection(db, "users", user.uid, "notifications"),
+            where("read", "==", false)
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setUnreadCount(snapshot.size);
+        });
+
+        return () => unsubscribe();
+    }, [user]);
 
     const handleLogout = async () => {
         try {
@@ -47,10 +69,46 @@ const Topbar: React.FC = () => {
             <BrandLink text="CONTECH" />
 
             {/* Conditional User Section */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                 {user ? (
                     <>
-                        {/* Shown when Logged In */}
+                        {/* Notification Bell */}
+                        <Link
+                            to="/notifications"
+                            style={{
+                                position: 'relative',
+                                color: 'var(--color-text-secondary)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 32,
+                                height: 32
+                            }}
+                        >
+                            <Bell size={20} />
+                            {unreadCount > 0 && (
+                                <span style={{
+                                    position: 'absolute',
+                                    top: -2,
+                                    right: -2,
+                                    background: 'var(--color-primary)', // Or red
+                                    color: 'white',
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    minWidth: 16,
+                                    height: 16,
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    border: '2px solid var(--color-background)'
+                                }}>
+                                    {unreadCount > 9 ? '9+' : unreadCount}
+                                </span>
+                            )}
+                        </Link>
+
+                        {/* User Email Badge */}
                         <span
                             style={{
                                 fontSize: 13,
@@ -85,7 +143,6 @@ const Topbar: React.FC = () => {
                     </>
                 ) : (
                     <>
-                        {/* Shown when Logged Out */}
                         <Link
                             to="/login"
                             style={{

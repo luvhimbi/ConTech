@@ -1,41 +1,53 @@
-import { doc, getDoc, setDoc, writeBatch } from "firebase/firestore";
+import { doc, getDoc, setDoc, writeBatch, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 
 export type PublicBusiness = {
     uid: string;
     companyName: string;
-    slug: string;
+    slug?: string;
 };
 
 /**
- * PUBLIC: Resolves a slug (e.g., 'geeks4learning') to a UID.
- * Used by the QuoteRequest form.
+ * PUBLIC: Resolves an identifier (slug OR uid) to a business profile.
+ * This ensures /q/geeks4learning AND /q/USER_ID_123 both work.
  */
-export async function resolveBusinessBySlug(slug: string): Promise<PublicBusiness | null> {
-    if (!slug) return null;
+export async function resolveBusinessBySlug(identifier: string): Promise<PublicBusiness | null> {
+    if (!identifier) return null;
+    const cleanId = identifier.toLowerCase().trim();
 
-    const snap = await getDoc(doc(db, "publicBusinesses", slug.toLowerCase()));
-    if (!snap.exists()) return null;
+    // 1. Try to resolve as a SLUG first
+    const slugSnap = await getDoc(doc(db, "publicBusinesses", cleanId));
+    if (slugSnap.exists()) {
+        const data = slugSnap.data();
+        return {
+            uid: data.uid,
+            companyName: data.companyName || "",
+            slug: cleanId
+        };
+    }
 
-    const data = snap.data();
-    if (!data.uid) return null;
+    // 2. Fallback: Try to resolve as a direct UID (users/{uid})
+    // This handles cases where a user hasn't set a slug yet
+    const userSnap = await getDoc(doc(db, "users", identifier));
+    if (userSnap.exists()) {
+        const data = userSnap.data();
+        return {
+            uid: identifier,
+            companyName: data.companyName || "Your Business",
+            slug: data.slug || undefined
+        };
+    }
 
-    return {
-        uid: data.uid,
-        companyName: data.companyName || "",
-        slug: slug.toLowerCase()
-    };
+    return null;
 }
 
 /**
  * INTERNAL: Updates the user's slug index.
- * It writes to both the user profile and the public index simultaneously.
  */
 export async function updateBusinessSlug(
     uid: string,
     newSlug: string,
-    companyName: string,
-    oldSlug?: string
+    companyName: string
 ): Promise<void> {
     const batch = writeBatch(db);
     const slugKey = newSlug.toLowerCase().trim();
@@ -47,26 +59,19 @@ export async function updateBusinessSlug(
         companyName: companyName
     });
 
-    // 2. Update the public index (The pointer used by /q/slug)
+    // 2. Update the public index pointer
     const publicRef = doc(db, "publicBusinesses", slugKey);
     batch.set(publicRef, {
         uid: uid,
         companyName: companyName,
-        updatedAt: new Date()
+        updatedAt: serverTimestamp()
     });
-
-    // 3. Optional: If the slug changed, you might want to delete the old index
-    // though usually better to keep it as a redirect or just let it exist.
-    // if (oldSlug && oldSlug !== slugKey) {
-    //    batch.delete(doc(db, "publicBusinesses", oldSlug.toLowerCase()));
-    // }
 
     await batch.commit();
 }
 
 /**
- * INITIALIZER: A helper to quickly create the index for an existing user.
- * Run this once in your Profile or Dashboard component if slug index is missing.
+ * INITIALIZER: Syncs the index.
  */
 export async function syncPublicSlug(uid: string) {
     const userSnap = await getDoc(doc(db, "users", uid));
@@ -76,9 +81,8 @@ export async function syncPublicSlug(uid: string) {
             await setDoc(doc(db, "publicBusinesses", data.slug.toLowerCase()), {
                 uid: uid,
                 companyName: data.companyName || "Our Business",
-                updatedAt: new Date()
+                updatedAt: serverTimestamp()
             }, { merge: true });
-            console.log("Public slug index synced successfully.");
         }
     }
 }

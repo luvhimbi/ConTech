@@ -3,7 +3,6 @@ import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { ToastProvider } from "./contexts/ToastContext";
 import ErrorBoundary from "./components/ErrorBoundary";
-import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import Login from "./components/Login";
 import Register from "./components/Register";
@@ -33,15 +32,21 @@ import AppLayout from "./components/AppLayout.tsx";
 import WebsiteLayout from "./components/WebLayout.tsx";
 import DocsLayout from "./components/DocsLayout.tsx";
 
+// ✅ Import the hook
+import { useNotifications } from "./hooks/useNotifications";
+import Notifications from "./components/Notifications.tsx";
+
 const App: React.FC = () => {
+    // ✅ Initialize notifications (requests permission & listens for messages)
+    useNotifications();
+
     return (
         <ErrorBoundary>
             <ToastProvider>
                 <Router>
                     <div className="page-container">
 
-
-                        {/*  Banner should sit right under the navbar so it shows everywhere */}
+                        {/* Banner should sit right under the navbar so it shows everywhere */}
                         <OfflineBanner />
 
                         <Routes>
@@ -57,27 +62,31 @@ const App: React.FC = () => {
                                 <Route path="/login" element={<Login />} />
                                 <Route path="/register" element={<Register />} />
                             </Route>
+
+                            {/* Public Quote Request (Standalone) */}
+                            <Route path="/q/:slug" element={<QuoteRequest />} />
+
                             {/* MAIN APP (Private) */}
                             <Route element={<AppLayout />}>
-                            <Route path="/dashboard" element={<Dashboard />} />
-                            <Route path="/clients" element={<Clients />} />
-                            <Route path="/clients/:clientId" element={<ClientDetails />} />
-                            <Route path="/pipeline" element={<Pipeline />} />
-                            <Route path="/projects" element={<Projects />} />
-                            <Route path="/projects/:projectId" element={<ProjectDetail />} />
-                            <Route path="/projects/:projectId/quotations" element={<ProjectQuotations />} />
-                            <Route path="/projects/:projectId/invoices" element={<Invoices />} />
-                            <Route path="/profile" element={<Profile />} />
-                            <Route path="/q-preview" element={<QuotePreview />} />
-                            <Route path="/settings/quote-form" element={<QuoteFormSettings />} />
-                            <Route path="/q/:slug" element={<QuoteRequest />} />
-                            <Route path="/form-analytics" element={<FormAnalytics />} />
-                            <Route path="/quote-requests" element={<QuoteRequests />} />
-                            <Route path="/quote-requests/:id" element={<QuoteRequestDetail />} />
-
+                                <Route path="/dashboard" element={<Dashboard />} />
+                                <Route path="/clients" element={<Clients />} />
+                                <Route path="/clients/:clientId" element={<ClientDetails />} />
+                                <Route path="/pipeline" element={<Pipeline />} />
+                                <Route path="/projects" element={<Projects />} />
+                                <Route path="/projects/:projectId" element={<ProjectDetail />} />
+                                <Route path="/projects/:projectId/quotations" element={<ProjectQuotations />} />
+                                <Route path="/projects/:projectId/invoices" element={<Invoices />} />
+                                <Route path="/profile" element={<Profile />} />
+                                <Route path="/q-preview" element={<QuotePreview />} />
+                                <Route path="/settings/quote-form" element={<QuoteFormSettings />} />
+                                <Route path="/form-analytics" element={<FormAnalytics />} />
+                                <Route path="/quote-requests" element={<QuoteRequests />} />
+                                <Route path="/quote-requests/:id" element={<QuoteRequestDetail />} />
+                                <Route path="/notifications" element={<Notifications />} />
                                 <Route path="/docs" element={<DocsLayout />} />
+
                                 {/* fallback */}
-                            <Route path="*" element={<Navigate to="/" replace />} />
+                                <Route path="*" element={<Navigate to="/" replace />} />
                             </Route>
                         </Routes>
 

@@ -29,15 +29,10 @@ type Field = {
 
 /* ---------------- helpers ---------------- */
 
-function shouldShowField(
-    field: Field,
-    answers: Record<string, any>
-): boolean {
+function shouldShowField(field: Field, answers: Record<string, any>): boolean {
     if (!field.condition) return true;
     return answers[field.condition.fieldId] === field.condition.equals;
 }
-
-/* ---------------- component ---------------- */
 
 const QuotePreview: React.FC = () => {
     const uid = auth.currentUser?.uid;
@@ -49,7 +44,10 @@ const QuotePreview: React.FC = () => {
     const [submitted, setSubmitted] = useState(false);
 
     useEffect(() => {
-        if (!uid) return;
+        if (!uid) {
+            setLoading(false);
+            return;
+        }
 
         (async () => {
             try {
@@ -65,7 +63,8 @@ const QuotePreview: React.FC = () => {
                 if (formSnap.exists()) {
                     setFields(formSnap.data().fields || []);
                 }
-            } catch {
+            } catch (err) {
+                console.error(err);
                 toast.error("Failed to load preview");
             } finally {
                 setLoading(false);
@@ -92,89 +91,36 @@ const QuotePreview: React.FC = () => {
     };
 
     if (loading) return <div className="container">Loading preview…</div>;
+    if (!uid) return <div className="container">Please log in to view preview.</div>;
     if (submitted) return <div className="container">Preview submitted ✔</div>;
 
     return (
-        <div
-            className="container"
-            style={{ maxWidth: 680, padding: "40px 0" }}
-        >
-            <h1 style={{ marginBottom: 6 }}>Quote Form Preview</h1>
-            <p style={{ color: "var(--color-text-secondary)" }}>
-                {companyName}
-            </p>
+        <div className="container" style={{ maxWidth: 680, padding: "40px 0" }}>
+            <h1>Quote Form Preview</h1>
+            <p style={{ color: "var(--color-text-secondary)" }}>{companyName}</p>
 
-            <form
-                onSubmit={submit}
-                style={{ marginTop: 24, display: "grid", gap: 14 }}
-            >
+            <form onSubmit={submit} style={{ marginTop: 24, display: "grid", gap: 14 }}>
                 {fields.map((field) =>
                     shouldShowField(field, answers) ? (
                         <div key={field.id}>
-                            <label
-                                style={{
-                                    fontSize: 12,
-                                    color: "var(--color-text-muted)",
-                                    display: "block",
-                                    marginBottom: 4,
-                                }}
-                            >
+                            <label style={{ fontSize: 12, color: "var(--color-text-muted)", display: "block", marginBottom: 4 }}>
                                 {field.label} {field.required && "*"}
                             </label>
 
                             {field.type === "textarea" ? (
-                                <textarea
-                                    className="form-control"
-                                    required={field.required}
-                                    rows={4}
-                                    value={answers[field.id] || ""}
-                                    onChange={(e) =>
-                                        setAnswers((a) => ({
-                                            ...a,
-                                            [field.id]: e.target.value,
-                                        }))
-                                    }
-                                />
+                                <textarea className="form-control" required={field.required} rows={4} value={answers[field.id] || ""} onChange={(e) => setAnswers(a => ({ ...a, [field.id]: e.target.value }))} />
                             ) : field.type === "select" ? (
-                                <select
-                                    className="form-control"
-                                    required={field.required}
-                                    value={answers[field.id] || ""}
-                                    onChange={(e) =>
-                                        setAnswers((a) => ({
-                                            ...a,
-                                            [field.id]: e.target.value,
-                                        }))
-                                    }
-                                >
+                                <select className="form-control" required={field.required} value={answers[field.id] || ""} onChange={(e) => setAnswers(a => ({ ...a, [field.id]: e.target.value }))}>
                                     <option value="">Select…</option>
-                                    {(field.options || []).map((opt) => (
-                                        <option key={opt} value={opt}>
-                                            {opt}
-                                        </option>
-                                    ))}
+                                    {(field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                 </select>
                             ) : (
-                                <input
-                                    className="form-control"
-                                    type={field.type}
-                                    required={field.required}
-                                    value={answers[field.id] || ""}
-                                    onChange={(e) =>
-                                        setAnswers((a) => ({
-                                            ...a,
-                                            [field.id]: e.target.value,
-                                        }))
-                                    }
-                                />
+                                <input className="form-control" type={field.type} required={field.required} value={answers[field.id] || ""} onChange={(e) => setAnswers(a => ({ ...a, [field.id]: e.target.value }))} />
                             )}
                         </div>
                     ) : null
                 )}
-
-                <button className="btn btn-primary" type="submit">
-                    Submit (Preview)
-                </button>
+                <button className="btn btn-primary" type="submit">Submit (Preview)</button>
             </form>
         </div>
     );
