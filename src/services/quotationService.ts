@@ -201,7 +201,7 @@ export const getProjectQuotations = async (projectId: string): Promise<Quotation
         clientEmail: data.clientEmail,
         clientAddress: data.clientAddress,
         clientPhone: data.clientPhone || "",
-
+        clientEmailLower:data.clientEmailLower,
         projectId: data.projectId || projectId,
 
         items: (data.items || []) as QuotationItem[],
@@ -270,36 +270,47 @@ export const updateQuotation = async (
     if (!projectId) throw new Error("projectId is required");
     if (!quotationId) throw new Error("quotationId is required");
 
-    const { items, subtotal, taxRate, taxAmount, total } = calculateQuotationTotals(
-        input.items.map((i) => ({
-          description: i.description,
-          quantity: i.quantity,
-          unitPrice: i.unitPrice,
-          total: (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0),
-        })),
-        input.taxRate
+    const cleanedEmail = (input.clientEmail || "").trim();
+    const cleanedEmailLower = cleanedEmail.toLowerCase();
+
+    const { items, subtotal, taxRate, taxAmount, total } =
+        calculateQuotationTotals(
+            input.items.map((i) => ({
+              description: i.description,
+              quantity: i.quantity,
+              unitPrice: i.unitPrice,
+              total: (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0),
+            })),
+            input.taxRate
+        );
+
+    await updateDoc(
+        doc(db, "projects", projectId, QUOTATIONS_SUBCOLLECTION, quotationId),
+        {
+          clientName: (input.clientName || "").trim(),
+
+          clientEmail: cleanedEmail,
+          clientEmailLower: cleanedEmailLower,
+
+          clientAddress: (input.clientAddress || "").trim(),
+          clientPhone: (input.clientPhone || "").trim(),
+
+          items,
+          subtotal,
+          taxRate,
+          taxAmount,
+          total,
+
+          notes: (input.notes || "").trim() || "",
+          validUntil: input.validUntil ? Timestamp.fromDate(input.validUntil) : null,
+
+          status: input.status,
+
+          updatedAt: serverTimestamp(),
+        }
     );
-
-    await updateDoc(doc(db, "projects", projectId, QUOTATIONS_SUBCOLLECTION, quotationId), {
-      clientName: (input.clientName || "").trim(),
-      clientEmail: (input.clientEmail || "").trim(),
-      clientAddress: (input.clientAddress || "").trim(),
-      clientPhone: (input.clientPhone || "").trim(),
-
-      items,
-      subtotal,
-      taxRate,
-      taxAmount,
-      total,
-
-      notes: (input.notes || "").trim() || "",
-      validUntil: input.validUntil ? Timestamp.fromDate(input.validUntil) : null,
-
-      status: input.status,
-
-      updatedAt: serverTimestamp(),
-    });
   } catch (error: any) {
     throw new Error("Failed to update quotation: " + (error?.message ?? "Unknown error"));
   }
 };
+
