@@ -13,13 +13,15 @@ import {
   type DocumentData,
 } from "firebase/firestore";
 
+//interface contains the structure of how QuotationItem will be
 export interface QuotationItem {
   description: string;
   quantity: number;
   unitPrice: number;
   total: number;
 }
-
+//this are the enums of the Quotation status
+//so type can be used to define an enum nice
 export type QuotationStatus = "draft" | "sent" | "accepted" | "rejected";
 
 export interface Quotation {
@@ -31,7 +33,7 @@ export interface Quotation {
   clientEmail: string;
   clientAddress: string;
   clientPhone?: string;
-
+  clientEmailLower: string;
   projectId: string;
 
   items: QuotationItem[];
@@ -118,26 +120,31 @@ export type CreateQuotationInput = {
   status?: QuotationStatus;
 };
 
+// this part creates the quotation in firebase
 export const createQuotation = async (
     projectId: string,
     userId: string,
     input: CreateQuotationInput
 ): Promise<string> => {
   try {
+
     if (!projectId) throw new Error("projectId is required");
     if (!userId) throw new Error("userId is required");
 
+    //we are checking for whether the company for this specific user exist in the db
     const companyName = await getUserCompanyName(userId);
+    //telling the user that they should complete their profile
     if (!companyName) throw new Error("Company name not found. Please complete your profile.");
 
     const quotationNumber = `QT-${Date.now()}`;
 
-    const { items, subtotal, taxRate, taxAmount, total } = calculateQuotationTotals(
-        input.items.map((i) => ({
-          description: i.description,
-          quantity: i.quantity,
-          unitPrice: i.unitPrice,
-          total: (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0),
+    const { items, subtotal, taxRate, taxAmount, total } =
+        calculateQuotationTotals(
+        input.items.map((i) =>
+            ({description: i.description,
+              quantity: i.quantity,
+              unitPrice: i.unitPrice,
+              total: (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0),
         })),
         input.taxRate
     );
@@ -150,8 +157,8 @@ export const createQuotation = async (
       clientEmail: (input.clientEmail || "").trim(),
       clientAddress: (input.clientAddress || "").trim(),
       clientPhone: (input.clientPhone || "").trim(),
+      clientEmailLower: (input.clientEmail || "").trim().toLowerCase(),
       projectId,
-
       items,
       subtotal,
       taxRate,
@@ -241,13 +248,10 @@ export type UpdateQuotationInput = {
   clientEmail: string;
   clientAddress: string;
   clientPhone?: string;
-
   items: Array<{ description: string; quantity: number; unitPrice: number }>;
   taxRate: number;
-
   notes?: string;
   validUntil?: Date;
-
   status: QuotationStatus;
 };
 

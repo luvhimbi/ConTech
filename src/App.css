@@ -5,12 +5,23 @@
     --accent-gray: #f8f9fa;
     --border-color: #e0e0e0;
     --font-main: 'Poppins', sans-serif;
+
+    /* Typography refinements for "Small & Good for eyes" */
+    --base-font-size: 14px;
+    --line-height-comfortable: 1.6;
+    --letter-spacing-clean: 0.015em;
+    --text-secondary: #4b5563; /* Softer black for long reading */
 }
 
 body {
     font-family: var(--font-main);
     background-color: var(--primary-white);
     color: var(--primary-black);
+    font-size: var(--base-font-size) !important;
+    line-height: var(--line-height-comfortable);
+    letter-spacing: var(--letter-spacing-clean);
+    -webkit-font-smoothing: antialiased; /* Smoother text rendering */
+    -moz-osx-font-smoothing: grayscale;
 }
 
 /* Design System Buttons */
@@ -19,9 +30,11 @@ body {
     color: var(--primary-white);
     border: 1px solid var(--primary-black);
     border-radius: 4px;
-    padding: 10px 20px;
-    font-weight: 600;
+    padding: 8px 16px; /* Slightly reduced padding to match smaller font */
+    font-size: 0.875rem;!important; /* 14px equivalent */
+    font-weight: 600!important;
     transition: all 0.3s ease;
+    cursor: pointer;
 }
 
 .btn-black:hover {
@@ -35,7 +48,9 @@ body {
     color: var(--primary-black);
     border: 2px solid var(--primary-black);
     border-radius: 4px;
-    font-weight: 600;
+    font-weight: 600 !important;
+    font-size: 0.875rem !important;
+    padding: 8px 16px;
 }
 
 .btn-outline-black:hover {
@@ -48,31 +63,64 @@ body {
     border: 1px solid var(--border-color);
     border-radius: 0px; /* Sharp modern edges */
     box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
+    padding: 1.25rem;
 }
 
 /* Input Styling */
 .form-control {
     border-radius: 0px;
     border: 1px solid var(--border-color);
-    padding: 12px;
+    padding: 10px; /* Adjusted for smaller scale */
+    font-size: 0.875rem !important;
 }
 
 .form-control:focus {
     border-color: var(--primary-black);
     box-shadow: none;
-}.app-footer {
-     padding: 12px 0;
-     border-top: 1px solid #e5e7eb;
-     background-color: #fafafa;
-     text-align: center;
- }
+    outline: none;
+}
+
+.app-footer {
+    padding: 16px 0;
+    border-top: 1px solid #e5e7eb;
+    background-color: #fafafa;
+    text-align: center;
+}
 
 .app-footer .footer-text {
-    font-size: 0.75rem;
+    font-size: 0.7rem; !important;/* Intentionally smaller for hierarchy */
     color: #6b7280;
+    letter-spacing: 0.02em;
 }
-article h1 { margin-bottom: 0.5em; color: var(--color-text); }
-article h3 { margin-top: 1.5em; margin-bottom: 0.5em; font-size: 22px; }
-article p { margin-bottom: 1em; line-height: 1.7; }
-article ul li { margin-bottom: 8px; color: var(--color-text-secondary); }
-article strong { color: var(--color-text); }
+
+/* Article Styling - Optimized for Readability */
+article h1 {
+    margin-bottom: 0.5em;
+    color: var(--primary-black);
+    font-size: 1.75rem !important; /* Scaled down slightly */
+    font-weight: 700;
+}
+
+article h3 {
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    font-size: 1.15rem !important; /* ~18px for a clean look */
+    font-weight: 600 !important;
+}
+
+article p {
+    margin-bottom: 1.2em;
+    line-height: 1.7;
+    color: var(--text-secondary); /* Easier on the eyes for paragraphs */
+}
+
+article ul li {
+    margin-bottom: 6px;
+    color: var(--text-secondary);
+    font-size: 0.875rem !important;
+}
+
+article strong {
+    color: var(--primary-black);
+    font-weight: 600 !important;
+}
