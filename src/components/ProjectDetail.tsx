@@ -14,8 +14,7 @@ import {
     BarChart3,
     Loader2,
     AlertCircle,
-    ChevronRight,
-    CircleDot
+    ChevronRight
 } from 'lucide-react';
 
 const ProjectDetail: React.FC = () => {

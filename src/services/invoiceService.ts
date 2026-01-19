@@ -62,6 +62,7 @@ export interface InvoiceMilestone {
 }
 
 export interface Invoice {
+    items: never[];
     id?: string;
     projectId: string;
     userId: string;

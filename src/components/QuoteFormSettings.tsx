@@ -34,7 +34,7 @@ import {
 } from "@dnd-kit/sortable";
 
 import { CSS } from "@dnd-kit/utilities";
-import { useNavigate } from "react-router-dom";
+// import { useNavigate } from "react-router-dom";
 
 /* ---------------- types ---------------- */
 
@@ -257,7 +257,7 @@ const SortableFieldCard: React.FC<{
 
 const QuoteFormSettings: React.FC = () => {
     const uid = auth.currentUser?.uid;
-    const navigate = useNavigate();
+    // const navigate = useNavigate();
 
     const [companyName, setCompanyName] = useState("");
     const [slug, setSlug] = useState("");

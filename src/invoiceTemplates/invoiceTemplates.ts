@@ -1,5 +1,11 @@
 // src/invoiceTemplates/invoiceTemplates.ts
 import type { Invoice } from "../services/invoiceService";
+import type React from "react";
+
+// ✅ Import previews properly (ES modules)
+import { ClassicTemplatePreview } from "./previews/ClassicTemplatePreview";
+import { ModernTemplatePreview } from "./previews/ModernTemplatePreview";
+import { MinimalTemplatePreview } from "./previews/MinimalTemplatePreview";
 
 export type InvoiceTemplateId = "classic" | "modern" | "minimal";
 
@@ -27,18 +33,18 @@ export const INVOICE_TEMPLATES: InvoiceTemplate[] = [
         id: "classic",
         name: "Classic",
         description: "Traditional layout with clear totals and sections.",
-        PreviewComponent: require("./previews/ClassicTemplatePreview").ClassicTemplatePreview,
+        PreviewComponent: ClassicTemplatePreview,
     },
     {
         id: "modern",
         name: "Modern",
         description: "Bold header, clean spacing, modern invoice look.",
-        PreviewComponent: require("./previews/ModernTemplatePreview").ModernTemplatePreview,
+        PreviewComponent: ModernTemplatePreview,
     },
     {
         id: "minimal",
         name: "Minimal",
         description: "Very simple, lightweight and compact.",
-        PreviewComponent: require("./previews/MinimalTemplatePreview").MinimalTemplatePreview,
+        PreviewComponent: MinimalTemplatePreview,
     },
 ];
