@@ -183,6 +183,52 @@ export const createQuotation = async (
   }
 };
 
+// export const getProjectQuotations = async (projectId: string): Promise<Quotation[]> => {
+//   try {
+//     if (!projectId) throw new Error("projectId is required");
+//
+//     const snap = await getDocs(collection(db, "projects", projectId, QUOTATIONS_SUBCOLLECTION));
+//
+//     const quotations: Quotation[] = snap.docs.map((d) => {
+//       const data = d.data() as DocumentData;
+//
+//       return {
+//         id: d.id,
+//         companyName: (data.companyName || "").trim(),
+//         quotationNumber: data.quotationNumber,
+//
+//         clientName: data.clientName,
+//         clientEmail: data.clientEmail,
+//         clientAddress: data.clientAddress,
+//         clientPhone: data.clientPhone || "",
+//         clientEmailLower:data.clientEmailLower,
+//         projectId: data.projectId || projectId,
+//
+//         items: (data.items || []) as QuotationItem[],
+//
+//         subtotal: Number(data.subtotal) || 0,
+//         taxRate: Number(data.taxRate) || 0,
+//         taxAmount: Number(data.taxAmount) || 0,
+//         total: Number(data.total) || 0,
+//
+//         notes: data.notes || "",
+//         validUntil: data.validUntil ? toDateSafe(data.validUntil) : undefined,
+//
+//         status: data.status as QuotationStatus,
+//
+//         userId: data.userId,
+//
+//         createdAt: toDateSafe(data.createdAt),
+//         updatedAt: toDateSafe(data.updatedAt),
+//       };
+//     });
+//
+//     quotations.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+//     return quotations;
+//   } catch (error: any) {
+//     throw new Error("Failed to fetch quotations: " + (error?.message ?? "Unknown error"));
+//   }
+// };
 export const getProjectQuotations = async (projectId: string): Promise<Quotation[]> => {
   try {
     if (!projectId) throw new Error("projectId is required");
@@ -192,16 +238,21 @@ export const getProjectQuotations = async (projectId: string): Promise<Quotation
     const quotations: Quotation[] = snap.docs.map((d) => {
       const data = d.data() as DocumentData;
 
+      const clientEmail = (data.clientEmail || "").trim();
+
       return {
         id: d.id,
         companyName: (data.companyName || "").trim(),
         quotationNumber: data.quotationNumber,
 
         clientName: data.clientName,
-        clientEmail: data.clientEmail,
+        clientEmail: clientEmail,
         clientAddress: data.clientAddress,
         clientPhone: data.clientPhone || "",
-        clientEmailLower:data.clientEmailLower,
+
+        // ✅ Always guarantee it exists
+        clientEmailLower: ((data.clientEmailLower || clientEmail) as string).toLowerCase(),
+
         projectId: data.projectId || projectId,
 
         items: (data.items || []) as QuotationItem[],
