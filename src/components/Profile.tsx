@@ -41,7 +41,7 @@ function loadImageDimensions(file: File): Promise<{ width: number; height: numbe
 
 const Profile: React.FC = () => {
     const [user, setUser] = useState<User | null>(null);
-    const [profile, setProfile] = useState<ProfileData | null>(null);
+    // REMOVED: const [profile, setProfile] = useState<ProfileData | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -70,7 +70,7 @@ const Profile: React.FC = () => {
                 try {
                     const userProfile = await getUserProfile(currentUser.uid);
                     if (userProfile) {
-                        setProfile(userProfile);
+                        // We set the formData directly. We don't need a separate 'profile' state.
                         setFormData({
                             firstName: userProfile.firstName || "",
                             lastName: userProfile.lastName || "",
@@ -199,18 +199,15 @@ const Profile: React.FC = () => {
         try {
             const uid = user.uid;
 
-            // 1. Update Firestore to remove branding fields
             await updateUserProfile(uid, {
                 branding: { logoUrl: null, logoPath: null }
             });
 
-            // 2. Try to delete from Storage if path exists
             if (formData.branding.logoPath) {
                 const logoRef = ref(storage, formData.branding.logoPath);
                 await deleteObject(logoRef).catch(e => console.warn("Storage delete failed", e));
             }
 
-            // 3. Update local state
             setFormData(prev => ({
                 ...prev,
                 branding: { logoUrl: null, logoPath: null }
@@ -268,7 +265,6 @@ const Profile: React.FC = () => {
                             borderRadius: "8px",
                             border: "1px solid var(--color-border)"
                         }}>
-                            {/* Logo Preview Square */}
                             <div style={{ textAlign: "center" }}>
                                 <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--color-text-secondary)", marginBottom: "8px", textTransform: "uppercase" }}>
                                     Preview
@@ -309,7 +305,6 @@ const Profile: React.FC = () => {
                                 )}
                             </div>
 
-                            {/* Upload Actions */}
                             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1rem" }}>
                                 <div>
                                     <label className="form-label" style={{ fontWeight: 600 }}>Select Image File</label>
