@@ -200,51 +200,6 @@ const Dashboard: React.FC = () => {
     );
 };
 
-/* --- Sub-Components --- */
-
-// const StatCard = ({
-//                       label,
-//                       value,
-//                       icon,
-//                   }: {
-//     label: string;
-//     value: string;
-//     icon: React.ReactNode;
-// }) => (
-//     <div
-//         style={{
-//             background: "var(--color-background)",
-//             border: "1px solid var(--color-border)",
-//             padding: "20px",
-//             borderRadius: "14px",
-//         }}
-//     >
-//         <div
-//             style={{
-//                 display: "flex",
-//                 alignItems: "center",
-//                 gap: "10px",
-//                 marginBottom: "8px",
-//                 color: "var(--color-text-muted)",
-//             }}
-//         >
-//             {icon}
-//             <span
-//                 style={{
-//                     fontSize: "13px",
-//                     fontWeight: 600,
-//                     textTransform: "uppercase",
-//                     letterSpacing: "0.02em",
-//                 }}
-//             >
-//         {label}
-//       </span>
-//         </div>
-//         <div style={{ fontSize: "24px", fontWeight: 700, color: "var(--color-text)" }}>
-//             {value}
-//         </div>
-//     </div>
-// );
 
 const QuickLink = ({
                        to,

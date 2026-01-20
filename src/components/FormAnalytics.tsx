@@ -70,7 +70,7 @@ const FormAnalytics: React.FC = () => {
             </div>
 
             <div style={{ marginTop: 32, fontSize: 13, color: "var(--color-text-muted)" }}>
-                Tip: Chart visualisations can be added later using Recharts or Chart.js.
+                 Chart visualisations coming soon
             </div>
         </div>
     );
