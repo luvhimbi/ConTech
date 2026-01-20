@@ -8,6 +8,7 @@ import {
     persistentLocalCache,
     persistentMultipleTabManager,
 } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 // Type for Firebase config
 interface FirebaseConfig {
     apiKey: string;
@@ -39,5 +40,6 @@ initializeFirestore(app, {
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const messaging = getMessaging(app);
+export const storage = getStorage(app);
 export default app;
 
