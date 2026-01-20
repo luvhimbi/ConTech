@@ -1,14 +1,42 @@
 // src/components/Profile.tsx
-import React, { useState, useEffect } from 'react';
-import { auth } from '../firebaseConfig';
-import { onAuthStateChanged, updatePassword, type User } from 'firebase/auth';
-import { getUserProfile, updateUserProfile } from '../services/profileService';
-import { useToast } from '../contexts/ToastContext';
+import React, { useMemo, useState, useEffect } from "react";
+import { auth, storage } from "../firebaseConfig";
+import { onAuthStateChanged, updatePassword, type User } from "firebase/auth";
+import { getUserProfile, updateUserProfile } from "../services/profileService";
+import { useToast } from "../contexts/ToastContext";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 interface ProfileData {
     firstName: string;
     lastName: string;
     companyName: string;
+    branding?: {
+        logoUrl?: string | null;
+        logoPath?: string | null;
+        updatedAt?: any;
+    };
+}
+
+const MAX_LOGO_SIZE_MB = 2;
+const MAX_LOGO_SIZE_BYTES = MAX_LOGO_SIZE_MB * 1024 * 1024;
+const MIN_LOGO_WIDTH = 400;
+const MIN_LOGO_HEIGHT = 400;
+
+function loadImageDimensions(file: File): Promise<{ width: number; height: number }> {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            const dims = { width: img.naturalWidth, height: img.naturalHeight };
+            URL.revokeObjectURL(url);
+            resolve(dims);
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error("Image dimension error"));
+        };
+        img.src = url;
+    });
 }
 
 const Profile: React.FC = () => {
@@ -17,18 +45,23 @@ const Profile: React.FC = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+
+    const [logoFile, setLogoFile] = useState<File | null>(null);
+    const [logoUploading, setLogoUploading] = useState(false);
+    const [logoError, setLogoError] = useState("");
+
     const { showToast } = useToast();
 
     const [formData, setFormData] = useState<ProfileData>({
-        firstName: '',
-        lastName: '',
-        companyName: '',
+        firstName: "",
+        lastName: "",
+        companyName: "",
+        branding: { logoUrl: null, logoPath: null },
     });
 
-    const [passwordData, setPasswordData] = useState({
-        newPassword: '',
-        confirmPassword: '',
-    });
+    const [passwordData, setPasswordData] = useState({ newPassword: "", confirmPassword: "" });
+
+    const logoPreviewUrl = useMemo(() => (logoFile ? URL.createObjectURL(logoFile) : null), [logoFile]);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -39,21 +72,21 @@ const Profile: React.FC = () => {
                     if (userProfile) {
                         setProfile(userProfile);
                         setFormData({
-                            firstName: userProfile.firstName || '',
-                            lastName: userProfile.lastName || '',
-                            companyName: userProfile.companyName || '',
+                            firstName: userProfile.firstName || "",
+                            lastName: userProfile.lastName || "",
+                            companyName: userProfile.companyName || "",
+                            branding: {
+                                logoUrl: userProfile.branding?.logoUrl ?? null,
+                                logoPath: userProfile.branding?.logoPath ?? null,
+                            },
                         });
                     }
-                } catch (error: any) {
-                    showToast('Failed to load profile: ' + error.message, 'error');
-                } finally {
-                    setLoading(false);
+                } catch (e) {
+                    showToast("Failed to load profile", "error");
                 }
-            } else {
-                setLoading(false);
             }
+            setLoading(false);
         });
-
         return () => unsubscribe();
     }, [showToast]);
 
@@ -69,18 +102,17 @@ const Profile: React.FC = () => {
 
     const handleSave = async () => {
         if (!user) return;
-
         setSaving(true);
         try {
-            await updateUserProfile(user.uid, formData);
-            const updatedProfile = await getUserProfile(user.uid);
-            if (updatedProfile) {
-                setProfile(updatedProfile);
-            }
+            await updateUserProfile(user.uid, {
+                firstName: formData.firstName,
+                lastName: formData.lastName,
+                companyName: formData.companyName,
+            });
             setIsEditing(false);
-            showToast('Profile updated successfully!', 'success');
+            showToast("Profile updated successfully!", "success");
         } catch (error: any) {
-            showToast('Failed to update profile: ' + error.message, 'error');
+            showToast(error.message, "error");
         } finally {
             setSaving(false);
         }
@@ -88,59 +120,115 @@ const Profile: React.FC = () => {
 
     const handlePasswordUpdate = async () => {
         if (!user) return;
-
         if (passwordData.newPassword !== passwordData.confirmPassword) {
-            showToast('Passwords do not match', 'error');
+            showToast("Passwords do not match", "error");
             return;
         }
-
         if (passwordData.newPassword.length < 6) {
-            showToast('Password must be at least 6 characters', 'error');
+            showToast("Password must be at least 6 characters", "error");
             return;
         }
 
         setSaving(true);
         try {
             await updatePassword(user, passwordData.newPassword);
-            setPasswordData({ newPassword: '', confirmPassword: '' });
-            showToast('Password updated successfully!', 'success');
+            setPasswordData({ newPassword: "", confirmPassword: "" });
+            showToast("Password updated successfully!", "success");
         } catch (error: any) {
-            showToast('Failed to update password: ' + error.message, 'error');
+            showToast(error.message, "error");
         } finally {
             setSaving(false);
         }
     };
 
-    const handleCancel = () => {
-        if (profile) {
-            setFormData({
-                firstName: profile.firstName || '',
-                lastName: profile.lastName || '',
-                companyName: profile.companyName || '',
-            });
+    const handleLogoPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        setLogoError("");
+        const file = e.target.files?.[0] ?? null;
+        if (!file) return;
+
+        if (file.size > MAX_LOGO_SIZE_BYTES) {
+            setLogoError(`Max size is ${MAX_LOGO_SIZE_MB}MB.`);
+            return;
         }
-        setIsEditing(false);
+
+        try {
+            const { width, height } = await loadImageDimensions(file);
+            if (width < MIN_LOGO_WIDTH || height < MIN_LOGO_HEIGHT) {
+                setLogoError(`Min ${MIN_LOGO_WIDTH}x${MIN_LOGO_HEIGHT}px required.`);
+                return;
+            }
+            setLogoFile(file);
+        } catch (err) {
+            setLogoError("Image load error.");
+        }
     };
 
-    if (loading) {
-        return (
-            <div className="page-content">
-                <div className="container">
-                    <p>Loading...</p>
-                </div>
-            </div>
-        );
-    }
+    const handleUploadLogo = async () => {
+        if (!auth.currentUser || !logoFile) return;
+        setLogoUploading(true);
+        try {
+            const uid = auth.currentUser.uid;
+            const logoPath = `users/${uid}/branding/logo.png`;
+            const logoRef = ref(storage, logoPath);
 
-    if (!user) {
-        return (
-            <div className="page-content">
-                <div className="container">
-                    <p>Please log in to view your profile.</p>
-                </div>
-            </div>
-        );
-    }
+            await uploadBytes(logoRef, logoFile, { contentType: logoFile.type });
+            const rawUrl = await getDownloadURL(logoRef);
+            const logoUrl = `${rawUrl}?v=${Date.now()}`;
+
+            await updateUserProfile(uid, { branding: { logoUrl, logoPath } });
+
+            setFormData(prev => ({
+                ...prev,
+                branding: { ...prev.branding, logoUrl, logoPath }
+            }));
+            setLogoFile(null);
+            showToast("Logo updated!", "success");
+        } catch (error: any) {
+            showToast(error.message, "error");
+        } finally {
+            setLogoUploading(false);
+        }
+    };
+
+    const handleRemoveLogo = async () => {
+        if (!user || !formData.branding?.logoUrl) return;
+
+        if (!window.confirm("Are you sure you want to remove your company logo?")) return;
+
+        setLogoUploading(true);
+        try {
+            const uid = user.uid;
+
+            // 1. Update Firestore to remove branding fields
+            await updateUserProfile(uid, {
+                branding: { logoUrl: null, logoPath: null }
+            });
+
+            // 2. Try to delete from Storage if path exists
+            if (formData.branding.logoPath) {
+                const logoRef = ref(storage, formData.branding.logoPath);
+                await deleteObject(logoRef).catch(e => console.warn("Storage delete failed", e));
+            }
+
+            // 3. Update local state
+            setFormData(prev => ({
+                ...prev,
+                branding: { logoUrl: null, logoPath: null }
+            }));
+
+            showToast("Logo removed", "success");
+        } catch (error: any) {
+            showToast(error.message, "error");
+        } finally {
+            setLogoUploading(false);
+        }
+    };
+
+    if (loading) return <div className="page-content"><div className="container">Loading...</div></div>;
+    if (!user) return <div className="page-content"><div className="container">Please log in.</div></div>;
+
+    const currentLogoUrl = logoPreviewUrl || formData.branding?.logoUrl || null;
+    const isExistingLogo = !!formData.branding?.logoUrl && !logoFile;
 
     return (
         <div className="page-content">
@@ -152,135 +240,156 @@ const Profile: React.FC = () => {
 
                 <div className="profile-section">
                     {!isEditing ? (
-                        <button
-                            className="btn btn-outline"
-                            onClick={() => setIsEditing(true)}
-                        >
-                            Edit Profile
-                        </button>
+                        <button className="btn btn-outline" onClick={() => setIsEditing(true)}>Edit Profile</button>
                     ) : (
                         <div className="profile-actions">
-                            <button
-                                className="btn btn-outline"
-                                onClick={handleCancel}
-                                disabled={saving}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                className="btn btn-primary"
-                                onClick={handleSave}
-                                disabled={saving}
-                            >
-                                {saving ? 'Saving...' : 'Save Changes'}
+                            <button className="btn btn-outline" onClick={() => setIsEditing(false)}>Cancel</button>
+                            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                                {saving ? "Saving..." : "Save Changes"}
                             </button>
                         </div>
                     )}
 
-                    <div className="profile-form">
-                        <div className="form-row">
-                            <div className="form-group">
-                                <label htmlFor="firstName" className="form-label">
-                                    First Name
-                                </label>
-                                <input
-                                    id="firstName"
-                                    name="firstName"
-                                    type="text"
-                                    className="form-control"
-                                    value={formData.firstName}
-                                    onChange={handleInputChange}
-                                    disabled={!isEditing}
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <label htmlFor="lastName" className="form-label">
-                                    Last Name
-                                </label>
-                                <input
-                                    id="lastName"
-                                    name="lastName"
-                                    type="text"
-                                    className="form-control"
-                                    value={formData.lastName}
-                                    onChange={handleInputChange}
-                                    disabled={!isEditing}
-                                />
+                    <div className="profile-section" style={{ marginTop: "2rem" }}>
+                        <div className="section-header" style={{ marginBottom: "1.5rem" }}>
+                            <h3 style={{ marginBottom: "0.5rem" }}>Company Branding</h3>
+                            <div className="alert alert-info" style={{ fontSize: "14px", lineHeight: "1.5" }}>
+                                <strong>Pro Tip:</strong> Please upload a high-resolution image. This logo will be used for
+                                white-labeling on your navbar, quotations, invoices, and public forms.
                             </div>
                         </div>
 
-                        <div className="form-group">
-                            <label htmlFor="email" className="form-label">
-                                Email Address
-                            </label>
-                            <input
-                                id="email"
-                                name="email"
-                                type="email"
-                                className="form-control"
-                                value={user.email || ''}
-                                disabled
-                            />
-                        </div>
+                        <div style={{
+                            display: "flex",
+                            gap: "2rem",
+                            alignItems: "flex-start",
+                            padding: "1.5rem",
+                            background: "var(--color-background-offset, #f8f9fa)",
+                            borderRadius: "8px",
+                            border: "1px solid var(--color-border)"
+                        }}>
+                            {/* Logo Preview Square */}
+                            <div style={{ textAlign: "center" }}>
+                                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--color-text-secondary)", marginBottom: "8px", textTransform: "uppercase" }}>
+                                    Preview
+                                </label>
+                                <div style={{
+                                    width: 120,
+                                    height: 120,
+                                    border: "2px dashed var(--color-border)",
+                                    background: "#fff",
+                                    display: "grid",
+                                    placeItems: "center",
+                                    borderRadius: "4px",
+                                    overflow: "hidden",
+                                    marginBottom: "10px"
+                                }}>
+                                    {currentLogoUrl ? (
+                                        <img src={currentLogoUrl} alt="Logo" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                                    ) : (
+                                        <span style={{ fontSize: "13px", color: "#999" }}>No logo</span>
+                                    )}
+                                </div>
 
-                        <div className="form-group">
-                            <label htmlFor="companyName" className="form-label">
-                                Company Name
-                            </label>
-                            <input
-                                id="companyName"
-                                name="companyName"
-                                type="text"
-                                className="form-control"
-                                value={formData.companyName}
-                                onChange={handleInputChange}
-                                disabled={!isEditing}
-                            />
+                                {isExistingLogo && (
+                                    <button
+                                        onClick={handleRemoveLogo}
+                                        disabled={logoUploading}
+                                        style={{
+                                            background: "none",
+                                            border: "none",
+                                            color: "var(--color-danger, #dc3545)",
+                                            fontSize: "12px",
+                                            cursor: "pointer",
+                                            fontWeight: 500
+                                        }}
+                                    >
+                                        Remove Logo
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Upload Actions */}
+                            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1rem" }}>
+                                <div>
+                                    <label className="form-label" style={{ fontWeight: 600 }}>Select Image File</label>
+                                    <input
+                                        type="file"
+                                        className="form-control"
+                                        accept="image/*"
+                                        onChange={handleLogoPick}
+                                        style={{ marginTop: "4px" }}
+                                    />
+                                    <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", marginTop: "6px" }}>
+                                        Recommended: PNG or SVG with transparent background. Min 400x400px.
+                                    </p>
+                                </div>
+
+                                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                                    <button
+                                        className="btn btn-primary"
+                                        onClick={handleUploadLogo}
+                                        disabled={logoUploading || !logoFile}
+                                    >
+                                        {logoUploading ? "Uploading..." : "Save Branding Logo"}
+                                    </button>
+
+                                    {logoFile && !logoUploading && (
+                                        <button
+                                            className="btn btn-outline"
+                                            onClick={() => setLogoFile(null)}
+                                            style={{ color: "var(--color-danger)" }}
+                                        >
+                                            Clear
+                                        </button>
+                                    )}
+                                </div>
+
+                                {logoError && (
+                                    <div style={{ color: "var(--color-danger)", fontSize: "13px", fontWeight: 500 }}>
+                                        ⚠️ {logoError}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
 
-                    <div className="profile-section" style={{ marginTop: 'var(--spacing-3xl)' }}>
-                        <h3 style={{ marginBottom: 'var(--spacing-lg)', fontSize: 'var(--font-size-xl)' }}>Change Password</h3>
+                    <div className="profile-form" style={{ marginTop: "2rem" }}>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label className="form-label">First Name</label>
+                                <input name="firstName" className="form-control" value={formData.firstName} onChange={handleInputChange} disabled={!isEditing} />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Last Name</label>
+                                <input name="lastName" className="form-control" value={formData.lastName} onChange={handleInputChange} disabled={!isEditing} />
+                            </div>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Email Address</label>
+                            <input className="form-control" value={user.email || ""} disabled />
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Company Name</label>
+                            <input name="companyName" className="form-control" value={formData.companyName} onChange={handleInputChange} disabled={!isEditing} />
+                        </div>
+                    </div>
+
+                    <div className="profile-section" style={{ marginTop: "3rem" }}>
+                        <h3>Change Password</h3>
                         <div className="profile-form">
                             <div className="form-group">
-                                <label htmlFor="newPassword" className="form-label">
-                                    New Password
-                                </label>
-                                <input
-                                    id="newPassword"
-                                    name="newPassword"
-                                    type="password"
-                                    className="form-control"
-                                    value={passwordData.newPassword}
-                                    onChange={handlePasswordChange}
-                                    placeholder="Enter new password"
-                                    minLength={6}
-                                />
+                                <label className="form-label">New Password</label>
+                                <input name="newPassword" type="password" className="form-control" value={passwordData.newPassword} onChange={handlePasswordChange} placeholder="Enter new password" />
                             </div>
-
                             <div className="form-group">
-                                <label htmlFor="confirmPassword" className="form-label">
-                                    Confirm Password
-                                </label>
-                                <input
-                                    id="confirmPassword"
-                                    name="confirmPassword"
-                                    type="password"
-                                    className="form-control"
-                                    value={passwordData.confirmPassword}
-                                    onChange={handlePasswordChange}
-                                    placeholder="Confirm new password"
-                                    minLength={6}
-                                />
+                                <label className="form-label">Confirm Password</label>
+                                <input name="confirmPassword" type="password" className="form-control" value={passwordData.confirmPassword} onChange={handlePasswordChange} placeholder="Confirm new password" />
                             </div>
-
-                            <button
-                                className="btn btn-primary"
-                                onClick={handlePasswordUpdate}
-                                disabled={saving || !passwordData.newPassword || !passwordData.confirmPassword}
-                            >
-                                {saving ? 'Updating...' : 'Update Password'}
+                            <button className="btn btn-primary" onClick={handlePasswordUpdate} disabled={saving || !passwordData.newPassword || !passwordData.confirmPassword}>
+                                {saving ? "Updating..." : "Update Password"}
                             </button>
                         </div>
                     </div>
