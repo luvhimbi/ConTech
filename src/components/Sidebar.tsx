@@ -1,22 +1,29 @@
-import React, { useState } from "react";
+import React from "react";
 import { NavLink } from "react-router-dom";
 import {
     LayoutDashboard,
     Users,
     FolderKanban,
     FileText,
-    BarChart3,
     Settings,
     User,
     ChevronLeft,
     ChevronRight,
     BookOpen,
+    Plus,
+    Receipt,
+    ScrollText
 } from "lucide-react";
 
-const Sidebar: React.FC = () => {
-    const [isCollapsed, setIsCollapsed] = useState(false);
+type LinkStyleArgs = { isActive: boolean };
 
-    const link = ({ isActive }: { isActive: boolean }) => ({
+interface SidebarProps {
+    isCollapsed: boolean;
+    setIsCollapsed: (val: boolean) => void;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed }) => {
+    const link = ({ isActive }: LinkStyleArgs): React.CSSProperties => ({
         display: "flex",
         alignItems: "center",
         gap: isCollapsed ? 0 : 10,
@@ -30,11 +37,17 @@ const Sidebar: React.FC = () => {
         justifyContent: isCollapsed ? "center" : "flex-start",
     });
 
-    const iconSize = { width: 18, height: 18, minWidth: 18 };
+    const iconSize: React.CSSProperties = { width: 18, height: 18, minWidth: 18 };
 
     return (
         <aside
             style={{
+                // FIXED POSITIONING: Stays constant
+                position: "fixed",
+                top: 0,
+                left: 0,
+                bottom: 0,
+                zIndex: 100,
                 width: isCollapsed ? 70 : 260,
                 borderRight: "1px solid var(--color-border)",
                 background: "var(--color-background)",
@@ -42,9 +55,9 @@ const Sidebar: React.FC = () => {
                 display: "flex",
                 flexDirection: "column",
                 transition: "width 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                position: "relative",
                 height: "100vh",
-                overflowX: "hidden"
+                overflowY: "auto",
+                overflowX: "hidden",
             }}
         >
             {/* Collapse Toggle Button */}
@@ -62,56 +75,69 @@ const Sidebar: React.FC = () => {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    zIndex: 10
+                    zIndex: 110,
                 }}
+                aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
                 {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
             </button>
 
-            {/* Scrollable Content Area */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
-                {/* Workspace */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 18 }}>
                 <Section title="Workspace" isCollapsed={isCollapsed}>
                     <NavLink to="/dashboard" style={link} title="Dashboard">
                         <LayoutDashboard style={iconSize} />
                         {!isCollapsed && <span>Dashboard</span>}
                     </NavLink>
-                    {/*<NavLink to="/pipeline" style={link} title="Pipeline">*/}
-                    {/*    <GitBranch style={iconSize} />*/}
-                    {/*    {!isCollapsed && <span>Pipeline</span>}*/}
-                    {/*</NavLink>*/}
                 </Section>
 
-                {/* Operations */}
-                <Section title="Operations" isCollapsed={isCollapsed}>
-                    <NavLink to="/clients" style={link} title="Clients">
-                        <Users style={iconSize} />
-                        {!isCollapsed && <span>Clients</span>}
+                <Section title="Quick Create" isCollapsed={isCollapsed}>
+                    <NavLink to="/quotes/new" style={link} title="New Quote">
+                        <Plus style={iconSize} />
+                        {!isCollapsed && <span>New Quote</span>}
                     </NavLink>
-                    <NavLink to="/projects" style={link} title="Projects">
-                        <FolderKanban style={iconSize} />
-                        {!isCollapsed && <span>Projects</span>}
+                    <NavLink to="/invoices/new" style={link} title="New Invoice">
+                        <Receipt style={iconSize} />
+                        {!isCollapsed && <span>New Invoice</span>}
                     </NavLink>
                 </Section>
 
-                {/* Forms & Sales */}
-                <Section title="Forms & Sales" isCollapsed={isCollapsed}>
+
+
+                <Section title="Sales" isCollapsed={isCollapsed}>
+                    <NavLink to="/quotes" style={link} title="Quotes">
+                        <ScrollText style={iconSize} />
+                        {!isCollapsed && <span>Quotes</span>}
+                    </NavLink>
+                    <NavLink to="/invoices" style={link} title="Invoices">
+                        <Receipt style={iconSize} />
+                        {!isCollapsed && <span>Invoices</span>}
+                    </NavLink>
+                    <NavLink to="/items" style={link} title="Items">
+                        <FileText style={iconSize} />
+                        {!isCollapsed && <span>Items</span>}
+                    </NavLink>
                     <NavLink to="/quote-requests" style={link} title="Quote Requests">
                         <FileText style={iconSize} />
                         {!isCollapsed && <span>Quote Requests</span>}
                     </NavLink>
-                    <NavLink to="/form-analytics" style={link} title="Form Analytics">
-                        <BarChart3 style={iconSize} />
-                        {!isCollapsed && <span>Form Analytics</span>}
+                </Section>
+
+                <Section title="Customers" isCollapsed={isCollapsed}>
+                    <NavLink to="/clients" style={link} title="Clients">
+                        <Users style={iconSize} />
+                        {!isCollapsed && <span>Clients</span>}
                     </NavLink>
+                    <NavLink to="/projects" style={link} title="Jobs">
+                        <FolderKanban style={iconSize} />
+                        {!isCollapsed && <span>Jobs</span>}
+                    </NavLink>
+                </Section>
+
+                <Section title="Settings" isCollapsed={isCollapsed}>
                     <NavLink to="/settings/quote-form" style={link} title="Quote Form Settings">
                         <Settings style={iconSize} />
                         {!isCollapsed && <span>Quote Form</span>}
                     </NavLink>
-                </Section>
-
-                {/* Account */}
-                <Section title="Account" isCollapsed={isCollapsed}>
                     <NavLink to="/profile" style={link} title="Profile">
                         <User style={iconSize} />
                         {!isCollapsed && <span>Profile</span>}
@@ -119,59 +145,34 @@ const Sidebar: React.FC = () => {
                 </Section>
             </div>
 
-            {/* Bottom Support/Docs Section */}
             <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 16, marginTop: "auto" }}>
                 <Section title="Support" isCollapsed={isCollapsed}>
                     <NavLink to="/docs" style={link} title="Documentation">
                         <BookOpen style={iconSize} />
                         {!isCollapsed && <span>Documentation</span>}
                     </NavLink>
-                    {!isCollapsed && (
-                        <div style={{
-                            marginTop: 8,
-                            padding: "12px",
-                            background: "var(--color-surface-alt, #f4f4f5)",
-                            borderRadius: 10,
-                            fontSize: 12,
-                            color: "var(--color-text-secondary)"
-                        }}>
-                            Need help? <br />
-                            <a href="mailto:support@contech.com" style={{ color: "var(--color-primary)", fontWeight: 600, textDecoration: "none" }}>Contact Support</a>
-                        </div>
-                    )}
                 </Section>
             </div>
         </aside>
     );
 };
 
-const Section: React.FC<{ title: string; children: React.ReactNode; isCollapsed: boolean }> = ({
-                                                                                                   title,
-                                                                                                   children,
-                                                                                                   isCollapsed
-                                                                                               }) => (
-    <div style={{ marginBottom: 10 }}>
+const Section: React.FC<{
+    title: string;
+    children: React.ReactNode;
+    isCollapsed: boolean;
+}> = ({ title, children, isCollapsed }) => (
+    <div style={{ marginBottom: 6 }}>
         {!isCollapsed ? (
-            <div
-                style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                    color: "var(--color-text-muted)",
-                    padding: "6px 14px",
-                    marginBottom: 4,
-                    whiteSpace: "nowrap"
-                }}
-            >
-                {title}
+            <div style={{ padding: "0 14px 6px 14px" }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", color: "var(--color-text-muted)" }}>
+                    {title}
+                </div>
             </div>
         ) : (
             <div style={{ height: 1, background: "var(--color-border)", margin: "10px 10px" }} />
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {children}
-        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{children}</div>
     </div>
 );
 

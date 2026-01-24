@@ -5,6 +5,7 @@ import { onAuthStateChanged, updatePassword, type User } from "firebase/auth";
 import { getUserProfile, updateUserProfile } from "../services/profileService";
 import { useToast } from "../contexts/ToastContext";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { serverTimestamp } from "firebase/firestore";
 
 interface ProfileData {
     firstName: string;
@@ -39,9 +40,28 @@ function loadImageDimensions(file: File): Promise<{ width: number; height: numbe
     });
 }
 
+function appendCacheBuster(url: string) {
+    // If url already has a query string, append with &
+    return url.includes("?") ? `${url}&v=${Date.now()}` : `${url}?v=${Date.now()}`;
+}
+
+function getFileExt(file: File) {
+    const name = file.name || "";
+    const dot = name.lastIndexOf(".");
+    const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+    // fallback if no extension (or weird)
+    return ext || "png";
+}
+
+function randomId(len = 10) {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let out = "";
+    for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+}
+
 const Profile: React.FC = () => {
     const [user, setUser] = useState<User | null>(null);
-    // REMOVED: const [profile, setProfile] = useState<ProfileData | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -64,13 +84,20 @@ const Profile: React.FC = () => {
     const logoPreviewUrl = useMemo(() => (logoFile ? URL.createObjectURL(logoFile) : null), [logoFile]);
 
     useEffect(() => {
+        return () => {
+            if (logoPreviewUrl) URL.revokeObjectURL(logoPreviewUrl);
+        };
+    }, [logoPreviewUrl]);
+
+    useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
             setUser(currentUser);
+
             if (currentUser) {
                 try {
                     const userProfile = await getUserProfile(currentUser.uid);
+
                     if (userProfile) {
-                        // We set the formData directly. We don't need a separate 'profile' state.
                         setFormData({
                             firstName: userProfile.firstName || "",
                             lastName: userProfile.lastName || "",
@@ -78,6 +105,7 @@ const Profile: React.FC = () => {
                             branding: {
                                 logoUrl: userProfile.branding?.logoUrl ?? null,
                                 logoPath: userProfile.branding?.logoPath ?? null,
+                                updatedAt: userProfile.branding?.updatedAt ?? null,
                             },
                         });
                     }
@@ -85,8 +113,10 @@ const Profile: React.FC = () => {
                     showToast("Failed to load profile", "error");
                 }
             }
+
             setLoading(false);
         });
+
         return () => unsubscribe();
     }, [showToast]);
 
@@ -103,16 +133,19 @@ const Profile: React.FC = () => {
     const handleSave = async () => {
         if (!user) return;
         setSaving(true);
+
         try {
             await updateUserProfile(user.uid, {
                 firstName: formData.firstName,
                 lastName: formData.lastName,
                 companyName: formData.companyName,
+                updatedAt: serverTimestamp(),
             });
+
             setIsEditing(false);
             showToast("Profile updated successfully!", "success");
         } catch (error: any) {
-            showToast(error.message, "error");
+            showToast(error.message ?? "Failed to update profile", "error");
         } finally {
             setSaving(false);
         }
@@ -120,22 +153,25 @@ const Profile: React.FC = () => {
 
     const handlePasswordUpdate = async () => {
         if (!user) return;
+
         if (passwordData.newPassword !== passwordData.confirmPassword) {
             showToast("Passwords do not match", "error");
             return;
         }
+
         if (passwordData.newPassword.length < 6) {
             showToast("Password must be at least 6 characters", "error");
             return;
         }
 
         setSaving(true);
+
         try {
             await updatePassword(user, passwordData.newPassword);
             setPasswordData({ newPassword: "", confirmPassword: "" });
             showToast("Password updated successfully!", "success");
         } catch (error: any) {
-            showToast(error.message, "error");
+            showToast(error.message ?? "Failed to update password", "error");
         } finally {
             setSaving(false);
         }
@@ -143,8 +179,15 @@ const Profile: React.FC = () => {
 
     const handleLogoPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
         setLogoError("");
+
         const file = e.target.files?.[0] ?? null;
         if (!file) return;
+
+        // Optional client-side type check (rules enforce it too)
+        if (!file.type.startsWith("image/")) {
+            setLogoError("Please select an image file.");
+            return;
+        }
 
         if (file.size > MAX_LOGO_SIZE_BYTES) {
             setLogoError(`Max size is ${MAX_LOGO_SIZE_MB}MB.`);
@@ -153,76 +196,143 @@ const Profile: React.FC = () => {
 
         try {
             const { width, height } = await loadImageDimensions(file);
+
             if (width < MIN_LOGO_WIDTH || height < MIN_LOGO_HEIGHT) {
                 setLogoError(`Min ${MIN_LOGO_WIDTH}x${MIN_LOGO_HEIGHT}px required.`);
                 return;
             }
+
             setLogoFile(file);
         } catch (err) {
             setLogoError("Image load error.");
         }
     };
 
+    /**
+     * Upload approach aligned with rules:
+     * - Path is under users/{uid}/branding/**
+     * - Only image/*
+     * - Under 2MB
+     * - Uses unique filename (avoids caching issues)
+     * - Updates Firestore branding with logoUrl/logoPath/updatedAt
+     * - Deletes old logo after successful Firestore update (cleanup)
+     */
     const handleUploadLogo = async () => {
-        if (!auth.currentUser || !logoFile) return;
+        const currentUser = auth.currentUser;
+        if (!currentUser || !logoFile) return;
+
         setLogoUploading(true);
+
         try {
-            const uid = auth.currentUser.uid;
-            const logoPath = `users/${uid}/branding/logo.png`;
+            const uid = currentUser.uid;
+
+            const oldLogoPath = formData.branding?.logoPath ?? null;
+
+            const ext = getFileExt(logoFile);
+            const logoPath = `users/${uid}/branding/logo-${Date.now()}-${randomId(6)}.${ext}`;
             const logoRef = ref(storage, logoPath);
 
+            // Upload
             await uploadBytes(logoRef, logoFile, { contentType: logoFile.type });
+
+            // URL
             const rawUrl = await getDownloadURL(logoRef);
-            const logoUrl = `${rawUrl}?v=${Date.now()}`;
+            const logoUrl = appendCacheBuster(rawUrl);
 
-            await updateUserProfile(uid, { branding: { logoUrl, logoPath } });
+            // Save to Firestore (consistent with your validBranding validator)
+            await updateUserProfile(uid, {
+                branding: {
+                    logoUrl,
+                    logoPath,
+                    updatedAt: serverTimestamp(),
+                },
+                updatedAt: serverTimestamp(),
+            });
 
-            setFormData(prev => ({
+            // Delete previous logo (best-effort cleanup)
+            if (oldLogoPath && oldLogoPath !== logoPath) {
+                try {
+                    await deleteObject(ref(storage, oldLogoPath));
+                } catch (e) {
+                    // cleanup failure should not block success
+                    console.warn("Old logo cleanup failed:", e);
+                }
+            }
+
+            // Update UI state
+            setFormData((prev) => ({
                 ...prev,
-                branding: { ...prev.branding, logoUrl, logoPath }
+                branding: { ...(prev.branding ?? {}), logoUrl, logoPath, updatedAt: new Date() },
             }));
+
             setLogoFile(null);
             showToast("Logo updated!", "success");
         } catch (error: any) {
-            showToast(error.message, "error");
+            showToast(error?.message ?? "Logo upload failed", "error");
         } finally {
             setLogoUploading(false);
         }
     };
 
+    /**
+     * Delete approach aligned with rules:
+     * - Storage delete allowed for owner on users/{uid}/branding/**
+     * - We delete the file FIRST, then clear Firestore branding.
+     *   (If you clear Firestore first and delete fails, you lose the path reference.)
+     */
     const handleRemoveLogo = async () => {
-        if (!user || !formData.branding?.logoUrl) return;
+        if (!user) return;
+
+        const existingPath = formData.branding?.logoPath ?? null;
+        const existingUrl = formData.branding?.logoUrl ?? null;
+
+        if (!existingPath && !existingUrl) return;
 
         if (!window.confirm("Are you sure you want to remove your company logo?")) return;
 
         setLogoUploading(true);
+
         try {
-            const uid = user.uid;
-
-            await updateUserProfile(uid, {
-                branding: { logoUrl: null, logoPath: null }
-            });
-
-            if (formData.branding.logoPath) {
-                const logoRef = ref(storage, formData.branding.logoPath);
-                await deleteObject(logoRef).catch(e => console.warn("Storage delete failed", e));
+            // 1) Delete storage object if we have path
+            if (existingPath) {
+                await deleteObject(ref(storage, existingPath));
             }
 
-            setFormData(prev => ({
+            // 2) Clear firestore branding
+            await updateUserProfile(user.uid, {
+                branding: { logoUrl: null, logoPath: null, updatedAt: serverTimestamp() },
+                updatedAt: serverTimestamp(),
+            });
+
+            // 3) Update UI state
+            setFormData((prev) => ({
                 ...prev,
-                branding: { logoUrl: null, logoPath: null }
+                branding: { logoUrl: null, logoPath: null, updatedAt: new Date() },
             }));
 
             showToast("Logo removed", "success");
         } catch (error: any) {
-            showToast(error.message, "error");
+            showToast(error?.message ?? "Failed to remove logo", "error");
         } finally {
             setLogoUploading(false);
         }
     };
 
-    if (loading) return <div className="page-content"><div className="container">Loading...</div></div>;
-    if (!user) return <div className="page-content"><div className="container">Please log in.</div></div>;
+    if (loading) {
+        return (
+            <div className="page-content">
+                <div className="container">Loading...</div>
+            </div>
+        );
+    }
+
+    if (!user) {
+        return (
+            <div className="page-content">
+                <div className="container">Please log in.</div>
+            </div>
+        );
+    }
 
     const currentLogoUrl = logoPreviewUrl || formData.branding?.logoUrl || null;
     const isExistingLogo = !!formData.branding?.logoUrl && !logoFile;
@@ -237,10 +347,14 @@ const Profile: React.FC = () => {
 
                 <div className="profile-section">
                     {!isEditing ? (
-                        <button className="btn btn-outline" onClick={() => setIsEditing(true)}>Edit Profile</button>
+                        <button className="btn btn-outline" onClick={() => setIsEditing(true)}>
+                            Edit Profile
+                        </button>
                     ) : (
                         <div className="profile-actions">
-                            <button className="btn btn-outline" onClick={() => setIsEditing(false)}>Cancel</button>
+                            <button className="btn btn-outline" onClick={() => setIsEditing(false)}>
+                                Cancel
+                            </button>
                             <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                                 {saving ? "Saving..." : "Save Changes"}
                             </button>
@@ -256,32 +370,50 @@ const Profile: React.FC = () => {
                             </div>
                         </div>
 
-                        <div style={{
-                            display: "flex",
-                            gap: "2rem",
-                            alignItems: "flex-start",
-                            padding: "1.5rem",
-                            background: "var(--color-background-offset, #f8f9fa)",
-                            borderRadius: "8px",
-                            border: "1px solid var(--color-border)"
-                        }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                gap: "2rem",
+                                alignItems: "flex-start",
+                                padding: "1.5rem",
+                                background: "var(--color-background-offset, #f8f9fa)",
+                                borderRadius: "8px",
+                                border: "1px solid var(--color-border)",
+                            }}
+                        >
                             <div style={{ textAlign: "center" }}>
-                                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--color-text-secondary)", marginBottom: "8px", textTransform: "uppercase" }}>
+                                <label
+                                    style={{
+                                        display: "block",
+                                        fontSize: "12px",
+                                        fontWeight: 600,
+                                        color: "var(--color-text-secondary)",
+                                        marginBottom: "8px",
+                                        textTransform: "uppercase",
+                                    }}
+                                >
                                     Preview
                                 </label>
-                                <div style={{
-                                    width: 120,
-                                    height: 120,
-                                    border: "2px dashed var(--color-border)",
-                                    background: "#fff",
-                                    display: "grid",
-                                    placeItems: "center",
-                                    borderRadius: "4px",
-                                    overflow: "hidden",
-                                    marginBottom: "10px"
-                                }}>
+
+                                <div
+                                    style={{
+                                        width: 120,
+                                        height: 120,
+                                        border: "2px dashed var(--color-border)",
+                                        background: "#fff",
+                                        display: "grid",
+                                        placeItems: "center",
+                                        borderRadius: "4px",
+                                        overflow: "hidden",
+                                        marginBottom: "10px",
+                                    }}
+                                >
                                     {currentLogoUrl ? (
-                                        <img src={currentLogoUrl} alt="Logo" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                                        <img
+                                            src={currentLogoUrl}
+                                            alt="Logo"
+                                            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                                        />
                                     ) : (
                                         <span style={{ fontSize: "13px", color: "#999" }}>No logo</span>
                                     )}
@@ -297,7 +429,7 @@ const Profile: React.FC = () => {
                                             color: "var(--color-danger, #dc3545)",
                                             fontSize: "12px",
                                             cursor: "pointer",
-                                            fontWeight: 500
+                                            fontWeight: 500,
                                         }}
                                     >
                                         Remove Logo
@@ -307,7 +439,9 @@ const Profile: React.FC = () => {
 
                             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1rem" }}>
                                 <div>
-                                    <label className="form-label" style={{ fontWeight: 600 }}>Select Image File</label>
+                                    <label className="form-label" style={{ fontWeight: 600 }}>
+                                        Select Image File
+                                    </label>
                                     <input
                                         type="file"
                                         className="form-control"
@@ -353,11 +487,23 @@ const Profile: React.FC = () => {
                         <div className="form-row">
                             <div className="form-group">
                                 <label className="form-label">First Name</label>
-                                <input name="firstName" className="form-control" value={formData.firstName} onChange={handleInputChange} disabled={!isEditing} />
+                                <input
+                                    name="firstName"
+                                    className="form-control"
+                                    value={formData.firstName}
+                                    onChange={handleInputChange}
+                                    disabled={!isEditing}
+                                />
                             </div>
                             <div className="form-group">
                                 <label className="form-label">Last Name</label>
-                                <input name="lastName" className="form-control" value={formData.lastName} onChange={handleInputChange} disabled={!isEditing} />
+                                <input
+                                    name="lastName"
+                                    className="form-control"
+                                    value={formData.lastName}
+                                    onChange={handleInputChange}
+                                    disabled={!isEditing}
+                                />
                             </div>
                         </div>
 
@@ -368,7 +514,13 @@ const Profile: React.FC = () => {
 
                         <div className="form-group">
                             <label className="form-label">Company Name</label>
-                            <input name="companyName" className="form-control" value={formData.companyName} onChange={handleInputChange} disabled={!isEditing} />
+                            <input
+                                name="companyName"
+                                className="form-control"
+                                value={formData.companyName}
+                                onChange={handleInputChange}
+                                disabled={!isEditing}
+                            />
                         </div>
                     </div>
 
@@ -377,13 +529,31 @@ const Profile: React.FC = () => {
                         <div className="profile-form">
                             <div className="form-group">
                                 <label className="form-label">New Password</label>
-                                <input name="newPassword" type="password" className="form-control" value={passwordData.newPassword} onChange={handlePasswordChange} placeholder="Enter new password" />
+                                <input
+                                    name="newPassword"
+                                    type="password"
+                                    className="form-control"
+                                    value={passwordData.newPassword}
+                                    onChange={handlePasswordChange}
+                                    placeholder="Enter new password"
+                                />
                             </div>
                             <div className="form-group">
                                 <label className="form-label">Confirm Password</label>
-                                <input name="confirmPassword" type="password" className="form-control" value={passwordData.confirmPassword} onChange={handlePasswordChange} placeholder="Confirm new password" />
+                                <input
+                                    name="confirmPassword"
+                                    type="password"
+                                    className="form-control"
+                                    value={passwordData.confirmPassword}
+                                    onChange={handlePasswordChange}
+                                    placeholder="Confirm new password"
+                                />
                             </div>
-                            <button className="btn btn-primary" onClick={handlePasswordUpdate} disabled={saving || !passwordData.newPassword || !passwordData.confirmPassword}>
+                            <button
+                                className="btn btn-primary"
+                                onClick={handlePasswordUpdate}
+                                disabled={saving || !passwordData.newPassword || !passwordData.confirmPassword}
+                            >
                                 {saving ? "Updating..." : "Update Password"}
                             </button>
                         </div>

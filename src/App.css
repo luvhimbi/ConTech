@@ -14,7 +14,7 @@
 }
 
 body {
-    font-family: var(--font-main);
+    font-family: var(--font-main), serif;
     background-color: var(--primary-white);
     color: var(--primary-black);
     font-size: var(--base-font-size) !important;
@@ -36,10 +36,14 @@ body {
     transition: all 0.3s ease;
     cursor: pointer;
 }
+.btn-primary:hover{
+    background-color: var(--primary-black);
+    color: var(--primary-white);
+}
 
 .btn-black:hover {
     background-color: #333;
-    color: var(--primary-white);
+    color: var(--primary-white)!important;
     transform: translateY(-1px);
 }
 
@@ -55,7 +59,7 @@ body {
 
 .btn-outline-black:hover {
     background-color: var(--primary-black);
-    color: var(--primary-white);
+    color: var(--primary-white) !important;
 }
 
 /* Card Styling */

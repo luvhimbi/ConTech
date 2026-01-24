@@ -12,6 +12,7 @@ const Register: React.FC = () => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    //we need to define navigate
     const navigate = useNavigate();
     const { showToast } = useToast();
 
@@ -46,10 +47,12 @@ const Register: React.FC = () => {
                 </div>
 
                 <form onSubmit={handleRegister} className="auth-form">
+
                             <div className="form-group">
                                 <label htmlFor="firstName" className="form-label">
                                     First Name
                                 </label>
+
                                 <input
                                     id="firstName"
                                     type="text"

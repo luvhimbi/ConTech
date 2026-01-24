@@ -18,9 +18,12 @@ const Dashboard: React.FC = () => {
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
 
+    // if there is no data from the db then lets show this
     const firstName = profile?.firstName?.trim() || "User";
     const companyName = profile?.companyName?.trim() || "";
 
+    // if the hour is less then 12:00 then we gonna assume its morning then say good morning
+    //etc
     const greeting = useMemo(() => {
         const hour = new Date().getHours();
         if (hour < 12) return "Good morning";
@@ -30,6 +33,7 @@ const Dashboard: React.FC = () => {
 
     useEffect(() => {
         const fetchProfile = async () => {
+
             const user = auth.currentUser;
             if (!user) {
                 setLoading(false);

@@ -39,7 +39,10 @@ type Milestone = {
     status: MilestoneStatus;
     items: MilestoneItem[];
 };
-
+/*
+feature note:
+this needs to be used as part of a user profile
+ */
 type BillingDetails = {
     businessName: string;
     contactName: string;
@@ -54,6 +57,9 @@ type BillingDetails = {
     accountType: string;
     paymentReferenceNote: string;
 };
+/*
+this are empty states
+ */
 
 const makeEmptyItem = (): MilestoneItem => ({
     description: "",

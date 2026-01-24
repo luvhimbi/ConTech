@@ -5,6 +5,8 @@ import { loginUser } from '../services/authService';
 import { useToast } from '../contexts/ToastContext';
 
 const Login: React.FC = () => {
+    // we have states (this just handles the data not to change on reload or something
+
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -13,15 +15,17 @@ const Login: React.FC = () => {
     const { showToast } = useToast();
 
     const handleLogin = async (e: React.FormEvent) => {
-        e.preventDefault();
+        e.preventDefault();//we stop the app from reloading
         setError('');
         setLoading(true);
 
+        // so since this is firebase we dont handle validations
         try {
             await loginUser(email, password);
             showToast('Welcome back!', 'success');
             navigate('/dashboard');
         } catch (err: any) {
+
             const errorMessage = err.message || 'Invalid email or password';
             setError(errorMessage);
             showToast(errorMessage, 'error');
@@ -31,14 +35,16 @@ const Login: React.FC = () => {
     };
 
     return (
-        <div className="page-content">
+        <div className="page-content mt-7">
             <div className="auth-container">
+
                 <div className="auth-header">
                     <h1 className="auth-title">Sign In</h1>
                     <p className="auth-subtitle">Enter your credentials to access your workspace</p>
                 </div>
 
                 <form onSubmit={handleLogin} className="auth-form">
+
                             <div className="form-group">
                                 <label htmlFor="email" className="form-label">
                                     Email Address
@@ -69,11 +75,11 @@ const Login: React.FC = () => {
                                 />
                             </div>
 
-                            {error && (
-                                <div className="alert alert-error">
-                                    {error}
-                                </div>
-                            )}
+                    {error && (
+                        <div className="alert alert-error">
+                            {error}
+                        </div>
+                    )}
 
                             <button
                                 type="submit"

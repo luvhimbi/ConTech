@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { auth, db } from "../firebaseConfig";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { doc, onSnapshot, query, collection, where } from "firebase/firestore";
-import { LogOut,  Bell, Settings } from "lucide-react";
+import { LogOut, Bell, Settings } from "lucide-react";
 import BrandLink from "./BrandLink";
 import toast from "react-hot-toast";
 
@@ -15,12 +15,22 @@ interface UserBranding {
     };
 }
 
-const Topbar: React.FC = () => {
+interface TopbarProps {
+    isSidebarCollapsed?: boolean;
+}
+
+const Topbar: React.FC<TopbarProps> = ({ isSidebarCollapsed = false }) => {
     const [user, setUser] = useState<User | null>(null);
     const [branding, setBranding] = useState<UserBranding | null>(null);
+
+    // ✅ Track branding load state so we can show app branding until data is ready
+    const [brandingLoaded, setBrandingLoaded] = useState(false);
+
     const [unreadCount, setUnreadCount] = useState(0);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const navigate = useNavigate();
+
+    const sidebarWidth = isSidebarCollapsed ? 70 : 260;
 
     useEffect(() => {
         const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
@@ -30,26 +40,39 @@ const Topbar: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (!user) {
-            setBranding(null);
-            return;
-        }
+        // Reset when user changes / logs out
+        setBranding(null);
+        setBrandingLoaded(false);
+        setUnreadCount(0);
+
+        if (!user) return;
 
         const userDocRef = doc(db, "users", user.uid);
-        const unsubscribeBranding = onSnapshot(userDocRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                setBranding({
-                    companyName: data.companyName,
-                    branding: data.branding
-                });
-            }
-        });
 
-        const q = query(
-            collection(db, "users", user.uid, "notifications"),
-            where("read", "==", false)
+        const unsubscribeBranding = onSnapshot(
+            userDocRef,
+            (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data() as any;
+                    setBranding({
+                        companyName: data.companyName,
+                        branding: data.branding,
+                    });
+                } else {
+                    setBranding(null);
+                }
+
+                // ✅ branding snapshot returned at least once (loaded)
+                setBrandingLoaded(true);
+            },
+            () => {
+                // ✅ even if error, consider "loaded" so app doesn't hang on skeleton
+                setBrandingLoaded(true);
+                setBranding(null);
+            }
         );
+
+        const q = query(collection(db, "users", user.uid, "notifications"), where("read", "==", false));
         const unsubscribeNotifs = onSnapshot(q, (snapshot) => {
             setUnreadCount(snapshot.size);
         });
@@ -72,63 +95,103 @@ const Topbar: React.FC = () => {
         }
     };
 
-    // Check if user has either a logo or a company name
-    const hasCustomBranding = !!(branding?.branding?.logoUrl || branding?.companyName);
+    // ✅ Consider custom branding available ONLY if loaded AND has logo or companyName
+    const hasCustomBranding = brandingLoaded && !!(branding?.branding?.logoUrl || branding?.companyName);
+
+    // ✅ If branding not loaded yet, or does not exist => show app branding
+    const showAppBranding = !brandingLoaded || !hasCustomBranding;
 
     return (
         <>
             <header
                 style={{
-                    height: 64, // Slightly taller to accommodate branding
+                    height: 64,
                     borderBottom: "1px solid var(--color-border)",
                     background: "var(--color-background)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
                     padding: "0 20px",
-                    position: "sticky",
+
+                    position: "fixed",
                     top: 0,
-                    zIndex: 100,
+                    right: 0,
+                    left: sidebarWidth,
+                    zIndex: 90,
+                    transition: "left 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                 }}
             >
                 <div style={{ display: "flex", alignItems: "center" }}>
-                    {!hasCustomBranding ? (
-                        /* Default CONTECH Branding */
+                    {showAppBranding ? (
+                        // ✅ App branding fallback while loading or if no branding
                         <BrandLink text="CONTECH" />
                     ) : (
-                        /* User's Custom Branding: Logo + Name */
-                        <Link to="/" style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 12,
-                            textDecoration: "none",
-                            transition: "opacity 0.2s"
-                        }}>
+                        // ✅ User branding after it has loaded
+                        <Link
+                            to="/"
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 12,
+                                textDecoration: "none",
+                                transition: "opacity 0.2s",
+                            }}
+                        >
                             {branding?.branding?.logoUrl && (
                                 <img
                                     src={branding.branding.logoUrl}
                                     alt="Logo"
                                     style={{
-                                        height: 38, // Prominent logo
+                                        height: 32,
                                         width: "auto",
                                         maxWidth: 160,
-                                        objectFit: "contain"
+                                        objectFit: "contain",
                                     }}
                                 />
                             )}
+
                             {branding?.companyName && (
-                                <span style={{
-                                    fontWeight: 700,
-                                    fontSize: 16,
-                                    color: "var(--color-text)",
-                                    whiteSpace: "nowrap",
-                                    letterSpacing: "-0.02em"
-                                }}>
-                                    {branding.companyName}
-                                </span>
+                                <span
+                                    style={{
+                                        fontWeight: 700,
+                                        fontSize: 16,
+                                        color: "var(--color-text)",
+                                        whiteSpace: "nowrap",
+                                        letterSpacing: "-0.02em",
+                                    }}
+                                >
+                  {branding.companyName}
+                </span>
                             )}
                         </Link>
                     )}
+
+                    {/* Optional: tiny loading hint next to app branding */}
+                    {!brandingLoaded && user ? (
+                        <span
+                            style={{
+                                marginLeft: 10,
+                                fontSize: 12,
+                                color: "var(--color-text-secondary)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 8,
+                            }}
+                            title="Loading branding..."
+                        >
+              <span
+                  style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: "var(--color-primary)",
+                      display: "inline-block",
+                      opacity: 0.8,
+                  }}
+              />
+              Loading...
+            </span>
+                    ) : null}
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -148,28 +211,29 @@ const Topbar: React.FC = () => {
                             >
                                 <Bell size={20} />
                                 {unreadCount > 0 && (
-                                    <span style={{
-                                        position: "absolute",
-                                        top: -2,
-                                        right: -2,
-                                        background: "var(--color-primary)",
-                                        color: "white",
-                                        fontSize: 10,
-                                        fontWeight: 700,
-                                        minWidth: 16,
-                                        height: 16,
-                                        borderRadius: "50%",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        border: "2px solid var(--color-background)",
-                                    }}>
-                                        {unreadCount > 9 ? "9+" : unreadCount}
-                                    </span>
+                                    <span
+                                        style={{
+                                            position: "absolute",
+                                            top: -2,
+                                            right: -2,
+                                            background: "var(--color-primary)",
+                                            color: "white",
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            minWidth: 16,
+                                            height: 16,
+                                            borderRadius: "50%",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            border: "2px solid var(--color-background)",
+                                        }}
+                                    >
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
                                 )}
                             </Link>
 
-                            {/* User Context / Profile */}
                             <Link
                                 to="/profile"
                                 style={{
@@ -186,8 +250,8 @@ const Topbar: React.FC = () => {
                             >
                                 <Settings size={14} />
                                 <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                    {user.email}
-                                </span>
+                  {user.email}
+                </span>
                             </Link>
 
                             <button
@@ -200,6 +264,7 @@ const Topbar: React.FC = () => {
                                     padding: "6px 12px",
                                     fontSize: "13px",
                                 }}
+                                type="button"
                             >
                                 <LogOut size={14} />
                                 Logout
@@ -220,13 +285,35 @@ const Topbar: React.FC = () => {
 
             {/* Logout Confirmation Modal */}
             {showLogoutConfirm && (
-                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-                    <div style={{ background: "var(--color-background)", borderRadius: 8, padding: 24, width: 320, boxShadow: "0 10px 30px rgba(0,0,0,0.15)" }}>
+                <div
+                    style={{
+                        position: "fixed",
+                        inset: 0,
+                        background: "rgba(0,0,0,0.4)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 1000,
+                    }}
+                >
+                    <div
+                        style={{
+                            background: "var(--color-background)",
+                            borderRadius: 8,
+                            padding: 24,
+                            width: 320,
+                            boxShadow: "0 10px 30px rgba(0,0,0,0.15)",
+                        }}
+                    >
                         <h3 style={{ marginBottom: 8 }}>Confirm Logout</h3>
                         <p style={{ fontSize: 14, color: "var(--color-text-secondary)" }}>Are you sure you want to log out?</p>
                         <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 20 }}>
-                            <button className="btn btn-outline" onClick={() => setShowLogoutConfirm(false)}>Cancel</button>
-                            <button className="btn btn-danger" onClick={confirmLogout}>Logout</button>
+                            <button className="btn btn-outline" onClick={() => setShowLogoutConfirm(false)} type="button">
+                                Cancel
+                            </button>
+                            <button className="btn btn-danger" onClick={confirmLogout} type="button">
+                                Logout
+                            </button>
                         </div>
                     </div>
                 </div>

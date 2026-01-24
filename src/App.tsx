@@ -3,7 +3,7 @@ import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { ToastProvider } from "./contexts/ToastContext";
 import ErrorBoundary from "./components/ErrorBoundary";
-import Footer from "./components/Footer";
+// import Footer from "./components/Footer";
 import Login from "./components/Login";
 import Register from "./components/Register";
 import Dashboard from "./components/Dashboard";
@@ -35,6 +35,9 @@ import DocsLayout from "./components/DocsLayout.tsx";
 // ✅ Import the hook
 import { useNotifications } from "./hooks/useNotifications";
 import Notifications from "./components/Notifications.tsx";
+import ItemsPage from "./components/ItemsPage.tsx";
+import StandaloneQuotationsPage from "./components/StandaloneQuotationsPage.tsx";
+
 
 const App: React.FC = () => {
     // ✅ Initialize notifications (requests permission & listens for messages)
@@ -82,14 +85,15 @@ const App: React.FC = () => {
                                 <Route path="/quote-requests" element={<QuoteRequests />} />
                                 <Route path="/quote-requests/:id" element={<QuoteRequestDetail />} />
                                 <Route path="/notifications" element={<Notifications />} />
+                                <Route path="/quotes/new" element={<StandaloneQuotationsPage />} />
                                 <Route path="/docs" element={<DocsLayout />} />
-
+                                <Route path="/items" element={<ItemsPage />} />
                                 {/* fallback */}
                                 <Route path="*" element={<Navigate to="/" replace />} />
                             </Route>
                         </Routes>
 
-                        <Footer />
+                        {/*<Footer />*/}
                     </div>
                 </Router>
             </ToastProvider>
