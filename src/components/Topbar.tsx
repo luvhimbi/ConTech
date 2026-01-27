@@ -96,7 +96,7 @@ const Topbar: React.FC<TopbarProps> = ({ isSidebarCollapsed = false }) => {
     };
 
     // ✅ Consider custom branding available ONLY if loaded AND has logo or companyName
-    const hasCustomBranding = brandingLoaded && !!(branding?.branding?.logoUrl || branding?.companyName);
+    const hasCustomBranding = brandingLoaded && !!(branding?.branding?.logoUrl && branding?.companyName);
 
     // ✅ If branding not loaded yet, or does not exist => show app branding
     const showAppBranding = !brandingLoaded || !hasCustomBranding;

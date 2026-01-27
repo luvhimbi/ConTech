@@ -1,0 +1,1854 @@
+// src/components/StandaloneInvoices.tsx
+import React, { useMemo, useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import { auth } from "../firebaseConfig";
+import { onAuthStateChanged, type User } from "firebase/auth";
+import {
+    getUserClients,
+    createClient,
+    type Client,
+} from "../services/clientService";
+import {
+    createStandaloneInvoice,
+    getUserStandaloneInvoices,
+    deleteStandaloneInvoice,
+    updateStandaloneInvoice,
+    type Invoice,
+    type InvoiceStatus,
+    type InvoiceTemplateId,
+} from "../services/invoiceService";
+import { getUserProfile } from "../services/profileService";
+import { useToast } from "../contexts/ToastContext";
+import { generateInvoicePDF } from "../utils/invoicePdfGenerator";
+
+type DepositRatePreset = 15 | 30 | 50 | "custom";
+type MilestoneStatus = "not_started" | "in_progress" | "completed";
+
+type MilestoneItem = {
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+};
+
+type Milestone = {
+    title: string;
+    description: string;
+    dueDate: string; // yyyy-mm-dd
+    status: MilestoneStatus;
+    items: MilestoneItem[];
+};
+
+type BillingDetails = {
+    businessName: string;
+    contactName: string;
+    email: string;
+    phone: string;
+    address: string;
+    bankName: string;
+    accountName: string;
+    accountNumber: string;
+    branchCode: string;
+    accountType: string;
+    paymentReferenceNote: string;
+};
+
+/* Empty states */
+const makeEmptyItem = (): MilestoneItem => ({
+    description: "",
+    quantity: 1,
+    unitPrice: 0,
+    total: 0,
+});
+
+const makeEmptyMilestone = (): Milestone => ({
+    title: "",
+    description: "",
+    dueDate: "",
+    status: "not_started",
+    items: [makeEmptyItem()],
+});
+
+const StandaloneInvoices: React.FC = () => {
+    const { showToast } = useToast();
+
+    // Clients
+    const [clients, setClients] = useState<Client[]>([]);
+    const [selectedClientId, setSelectedClientId] = useState("");
+    const [saveClient, setSaveClient] = useState(true);
+
+    // Pagination
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(6);
+
+    const [user, setUser] = useState<User | null>(null);
+    const [userProfile, setUserProfile] = useState<{
+        firstName: string;
+        lastName: string;
+        companyName: string;
+        email: string;
+    } | null>(null);
+
+    const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [showForm, setShowForm] = useState(false);
+
+    // Edit mode
+    const [editingId, setEditingId] = useState<string | null>(null);
+
+    // Template selection
+    const [templateId, setTemplateId] = useState<InvoiceTemplateId>("classic");
+
+    // Milestones now contain items
+    const [milestones, setMilestones] = useState<Milestone[]>([makeEmptyMilestone()]);
+
+    // Deposit
+    const [depositEnabled, setDepositEnabled] = useState(false);
+    const [depositPreset, setDepositPreset] = useState<DepositRatePreset>(15);
+    const [depositCustomRate, setDepositCustomRate] = useState(15);
+    const [depositDueDate, setDepositDueDate] = useState("");
+
+    // Billing
+    const [billing, setBilling] = useState<BillingDetails>({
+        businessName: "",
+        contactName: "",
+        email: "",
+        phone: "",
+        address: "",
+        bankName: "",
+        accountName: "",
+        accountNumber: "",
+        branchCode: "",
+        accountType: "",
+        paymentReferenceNote: "",
+    });
+
+    // Client + invoice details
+    const [formData, setFormData] = useState<{
+        clientName: string;
+        clientEmail: string;
+        clientAddress: string;
+        clientPhone: string;
+        taxRate: number;
+        dueDate: string;
+        status: InvoiceStatus;
+    }>({
+        clientName: "",
+        clientEmail: "",
+        clientAddress: "",
+        clientPhone: "",
+        taxRate: 0,
+        dueDate: "",
+        status: "pending",
+    });
+
+    // -------------------- LOADERS --------------------
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+            setUser(currentUser);
+            if (!currentUser) {
+                setLoading(false);
+                return;
+            }
+
+            try {
+                setLoading(true);
+                await Promise.all([
+                    loadInvoices(currentUser.uid),
+                    loadUserProfile(currentUser.uid),
+                    loadClients(currentUser.uid),
+                ]);
+            } finally {
+                setLoading(false);
+            }
+        });
+
+        return () => unsubscribe();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const loadUserProfile = async (userId: string) => {
+        try {
+            const profile = await getUserProfile(userId);
+            if (!profile) return;
+
+            setUserProfile({
+                firstName: profile.firstName,
+                lastName: profile.lastName,
+                companyName: profile.companyName,
+                email: profile.email,
+            });
+
+            // Prefill billing details
+            setBilling((prev) => ({
+                ...prev,
+                businessName: prev.businessName || profile.companyName || "",
+                email: prev.email || profile.email || "",
+                contactName:
+                    prev.contactName ||
+                    `${profile.firstName || ""} ${profile.lastName || ""}`.trim(),
+            }));
+        } catch (error) {
+            console.error("Failed to load user profile:", error);
+        }
+    };
+
+    const loadInvoices = async (userId: string) => {
+        try {
+            const standaloneInvoices = await getUserStandaloneInvoices(userId);
+            setInvoices(standaloneInvoices);
+        } catch (error: any) {
+            showToast(
+                "Failed to load invoices: " + (error?.message ?? "Unknown error"),
+                "error"
+            );
+        }
+    };
+
+    const loadClients = async (userId: string) => {
+        try {
+            const list = await getUserClients(userId);
+            setClients(list);
+        } catch (error) {
+            console.error("Failed to load clients:", error);
+        }
+    };
+
+    // -------------------- FORM HANDLERS --------------------
+    const handleInputChange = (
+        e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+    ) => {
+        const { name, value } = e.target;
+        setFormData((prev) => {
+            if (name === "taxRate") return { ...prev, taxRate: Number(value) || 0 };
+            return { ...prev, [name]: value };
+        });
+
+        // Detach from selected client if typing
+        if (
+            name === "clientName" ||
+            name === "clientEmail" ||
+            name === "clientAddress" ||
+            name === "clientPhone"
+        ) {
+            setSelectedClientId("");
+        }
+    };
+
+    const handleBillingChange = (
+        e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+    ) => {
+        const { name, value } = e.target;
+        setBilling((prev) => ({ ...prev, [name]: value }));
+    };
+
+    // Select client -> autofill fields
+    const handleSelectClient = (clientId: string) => {
+        setSelectedClientId(clientId);
+        if (!clientId) return;
+
+        const c = clients.find((x) => x.id === clientId);
+        if (!c) return;
+
+        setFormData((prev) => ({
+            ...prev,
+            clientName: c.name,
+            clientEmail: c.email,
+            clientAddress: c.address,
+            clientPhone: c.phone || "",
+        }));
+    };
+
+    // -------------------- MILESTONES + ITEMS HANDLERS --------------------
+    const addMilestone = () => {
+        setMilestones((prev) => [...prev, makeEmptyMilestone()]);
+    };
+
+    const removeMilestone = (milestoneIndex: number) => {
+        setMilestones((prev) => {
+            const updated = prev.filter((_, i) => i !== milestoneIndex);
+            return updated.length ? updated : [makeEmptyMilestone()];
+        });
+    };
+
+    const handleMilestoneChange = (
+        milestoneIndex: number,
+        field: keyof Omit<Milestone, "items">,
+        value: string
+    ) => {
+        setMilestones((prev) =>
+            prev.map((m, i) => {
+                if (i !== milestoneIndex) return m;
+                return { ...m, [field]: value } as Milestone;
+            })
+        );
+    };
+
+    const addItemToMilestone = (milestoneIndex: number) => {
+        setMilestones((prev) =>
+            prev.map((m, i) => {
+                if (i !== milestoneIndex) return m;
+                return { ...m, items: [...m.items, makeEmptyItem()] };
+            })
+        );
+    };
+
+    const removeItemFromMilestone = (milestoneIndex: number, itemIndex: number) => {
+        setMilestones((prev) =>
+            prev.map((m, i) => {
+                if (i !== milestoneIndex) return m;
+                const updatedItems = m.items.filter((_, idx) => idx !== itemIndex);
+                return {
+                    ...m,
+                    items: updatedItems.length ? updatedItems : [makeEmptyItem()],
+                };
+            })
+        );
+    };
+
+    const handleMilestoneItemChange = (
+        milestoneIndex: number,
+        itemIndex: number,
+        field: keyof MilestoneItem,
+        value: string | number
+    ) => {
+        setMilestones((prev) =>
+            prev.map((m, i) => {
+                if (i !== milestoneIndex) return m;
+
+                const newItems = m.items.map((it, idx) => {
+                    if (idx !== itemIndex) return it;
+
+                    const updated: MilestoneItem = {
+                        ...it,
+                        [field]:
+                            field === "description" ? String(value) : Number(value),
+                    } as MilestoneItem;
+
+                    const qty = Number(updated.quantity) || 0;
+                    const price = Number(updated.unitPrice) || 0;
+                    updated.total = qty * price;
+
+                    return updated;
+                });
+
+                return { ...m, items: newItems };
+            })
+        );
+    };
+
+    // -------------------- RESET --------------------
+    const resetForm = () => {
+        setFormData({
+            clientName: "",
+            clientEmail: "",
+            clientAddress: "",
+            clientPhone: "",
+            taxRate: 0,
+            dueDate: "",
+            status: "pending",
+        });
+        setTemplateId("classic");
+        setMilestones([makeEmptyMilestone()]);
+        setDepositEnabled(false);
+        setDepositPreset(15);
+        setDepositCustomRate(15);
+        setDepositDueDate("");
+        setEditingId(null);
+        setSelectedClientId("");
+        setSaveClient(true);
+    };
+
+    // -------------------- TOTALS --------------------
+    const milestoneTotals = useMemo(() => {
+        const totalsPerMilestone = milestones.map((m) => {
+            const subtotal = (m.items || []).reduce(
+                (sum, it) => sum + (Number(it.total) || 0),
+                0
+            );
+            return subtotal;
+        });
+        return totalsPerMilestone;
+    }, [milestones]);
+
+    const totalInvoices = invoices.length;
+
+    const totalPages = useMemo(() => {
+        return Math.max(1, Math.ceil(totalInvoices / pageSize));
+    }, [totalInvoices, pageSize]);
+
+    const paginatedInvoices = useMemo(() => {
+        const start = (page - 1) * pageSize;
+        return invoices.slice(start, start + pageSize);
+    }, [invoices, page, pageSize]);
+
+    // Keep page valid when invoices/pageSize change
+    useEffect(() => {
+        if (page > totalPages) setPage(totalPages);
+        if (page < 1) setPage(1);
+    }, [page, totalPages]);
+
+    // Reset to first page when pageSize changes
+    useEffect(() => {
+        setPage(1);
+    }, [pageSize]);
+
+    const totals = useMemo(() => {
+        const subtotal = milestoneTotals.reduce(
+            (sum, ms) => sum + (Number(ms) || 0),
+            0
+        );
+        const rate = Number(formData.taxRate) || 0;
+        const taxAmount = (subtotal * rate) / 100;
+        const totalAmount = subtotal + taxAmount;
+        return { subtotal, taxAmount, totalAmount };
+    }, [milestoneTotals, formData.taxRate]);
+
+    const depositRate = useMemo(() => {
+        return depositPreset === "custom"
+            ? Number(depositCustomRate) || 0
+            : depositPreset;
+    }, [depositPreset, depositCustomRate]);
+
+    const depositAmount = useMemo(() => {
+        if (!depositEnabled) return 0;
+        const rate = Number(depositRate) || 0;
+        return (totals.totalAmount * rate) / 100;
+    }, [depositEnabled, depositRate, totals.totalAmount]);
+
+    // -------------------- EDIT MODE --------------------
+    const startEdit = (inv: Invoice) => {
+        setEditingId(inv.id || null);
+        setShowForm(true);
+        setSelectedClientId("");
+        setSaveClient(false);
+
+        setTemplateId((inv.templateId as InvoiceTemplateId) || "classic");
+
+        setFormData({
+            clientName: inv.clientName || "",
+            clientEmail: inv.clientEmail || "",
+            clientAddress: (inv.clientAddress as any) || "",
+            clientPhone: (inv.clientPhone as any) || "",
+            taxRate: Number(inv.taxRate) || 0,
+            dueDate: inv.dueDate
+                ? new Date(inv.dueDate as any).toISOString().slice(0, 10)
+                : "",
+            status: (inv.status as InvoiceStatus) || "pending",
+        });
+
+        // Billing
+        if ((inv as any).billing) {
+            setBilling((prev) => ({
+                ...prev,
+                ...(inv as any).billing,
+            }));
+        }
+
+        // Milestones -> UI milestones
+        const invMilestones = Array.isArray((inv as any).milestones)
+            ? (inv as any).milestones
+            : [];
+
+        if (invMilestones.length) {
+            setMilestones(
+                invMilestones.map((m: any) => ({
+                    title: m.title || "",
+                    description: m.description || "",
+                    dueDate: m.dueDate
+                        ? new Date(m.dueDate).toISOString().slice(0, 10)
+                        : "",
+                    status: (m.status as MilestoneStatus) || "not_started",
+                    items:
+                        Array.isArray(m.items) && m.items.length
+                            ? m.items.map((it: any) => ({
+                                description: it.description || "",
+                                quantity: Number(it.quantity) || 1,
+                                unitPrice: Number(it.unitPrice) || 0,
+                                total: (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0),
+                            }))
+                            : [makeEmptyItem()],
+                }))
+            );
+        } else {
+            setMilestones([makeEmptyMilestone()]);
+        }
+
+        // Deposit
+        const invDeposit = (inv as any).deposit;
+        if (invDeposit) {
+            setDepositEnabled(Boolean(invDeposit.enabled));
+            setDepositDueDate(
+                invDeposit.dueDate
+                    ? new Date(invDeposit.dueDate).toISOString().slice(0, 10)
+                    : ""
+            );
+
+            const r = Number(invDeposit.ratePercent) || 0;
+            if (r === 15 || r === 30 || r === 50) {
+                setDepositPreset(r);
+                setDepositCustomRate(r);
+            } else {
+                setDepositPreset("custom");
+                setDepositCustomRate(r);
+            }
+        }
+    };
+
+    // -------------------- SUBMIT --------------------
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user) return;
+
+        if (!formData.clientName.trim() || !formData.clientEmail.trim()) {
+            showToast("Please complete required client fields.", "error");
+            return;
+        }
+
+        // Clean milestones + items
+        const cleanedMilestones = (milestones || [])
+            .map((m) => {
+                const title = (m.title || "").trim();
+                const description = (m.description || "").trim();
+
+                const cleanedItems = (m.items || [])
+                    .map((it) => ({
+                        description: (it.description || "").trim(),
+                        quantity: Number(it.quantity) || 0,
+                        unitPrice: Number(it.unitPrice) || 0,
+                    }))
+                    .filter((it) => it.description.length > 0);
+
+                return {
+                    title,
+                    description,
+                    dueDate: m.dueDate ? new Date(m.dueDate) : undefined,
+                    status: (m.status || "not_started") as MilestoneStatus,
+                    items: cleanedItems,
+                };
+            })
+            .filter((m) => m.title.length > 0 && m.items.length > 0);
+
+        if (cleanedMilestones.length === 0) {
+            showToast("Please add at least 1 milestone with at least 1 item.", "error");
+            return;
+        }
+
+        setSaving(true);
+
+        try {
+            // Save-client logic (only on create)
+            if (!editingId && saveClient) {
+                const exists = clients.some(
+                    (c) =>
+                        (c.email || "").toLowerCase() ===
+                        formData.clientEmail.trim().toLowerCase() &&
+                        (c.name || "").toLowerCase() === formData.clientName.trim().toLowerCase()
+                );
+
+                if (!selectedClientId && !exists) {
+                    await createClient(user.uid, {
+                        name: formData.clientName.trim(),
+                        email: formData.clientEmail.trim(),
+                        address: formData.clientAddress.trim(),
+                        phone: formData.clientPhone.trim() || undefined,
+                    });
+                    await loadClients(user.uid);
+                }
+            }
+
+            const payloadExtra = {
+                templateId,
+                billing: {
+                    businessName: billing.businessName.trim(),
+                    contactName: billing.contactName.trim(),
+                    email: billing.email.trim(),
+                    phone: billing.phone.trim(),
+                    address: billing.address.trim(),
+                    bankName: billing.bankName.trim(),
+                    accountName: billing.accountName.trim(),
+                    accountNumber: billing.accountNumber.trim(),
+                    branchCode: billing.branchCode.trim(),
+                    accountType: billing.accountType.trim(),
+                    paymentReferenceNote: billing.paymentReferenceNote.trim(),
+                },
+                milestones: cleanedMilestones,
+                deposit: {
+                    enabled: depositEnabled,
+                    ratePercent: Number(depositRate) || 0,
+                    dueDate: depositDueDate ? new Date(depositDueDate) : undefined,
+                },
+            };
+
+            if (editingId) {
+                await updateStandaloneInvoice(user.uid, editingId, {
+                    clientName: formData.clientName.trim(),
+                    clientEmail: formData.clientEmail.trim(),
+                    clientAddress: formData.clientAddress.trim() || undefined,
+                    clientPhone: formData.clientPhone.trim() || undefined,
+                    taxRate: Number(formData.taxRate) || 0,
+                    dueDate: formData.dueDate ? new Date(formData.dueDate) : undefined,
+                    status: formData.status,
+                    ...(payloadExtra as any),
+                });
+                showToast("Invoice updated successfully!", "success");
+            } else {
+                await createStandaloneInvoice(user.uid, {
+                    clientName: formData.clientName.trim(),
+                    clientEmail: formData.clientEmail.trim(),
+                    clientAddress: formData.clientAddress.trim() || undefined,
+                    clientPhone: formData.clientPhone.trim() || undefined,
+                    taxRate: Number(formData.taxRate) || 0,
+                    dueDate: formData.dueDate ? new Date(formData.dueDate) : undefined,
+                    status: formData.status,
+                    ...(payloadExtra as any),
+                });
+                showToast("Invoice created successfully!", "success");
+            }
+
+            resetForm();
+            setShowForm(false);
+            await loadInvoices(user.uid);
+        } catch (error: any) {
+            showToast(
+                (editingId ? "Failed to update invoice: " : "Failed to create invoice: ") +
+                (error?.message ?? "Unknown error"),
+                "error"
+            );
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDownloadPDF = (invoice: Invoice) => {
+        if (!userProfile) {
+            showToast("User profile not loaded", "error");
+            return;
+        }
+
+        try {
+            generateInvoicePDF(invoice as any, userProfile, "Standalone Invoice");
+            showToast("PDF generated successfully!", "success");
+        } catch (error: any) {
+            showToast(
+                "Failed to generate PDF: " + (error?.message ?? "Unknown error"),
+                "error"
+            );
+        }
+    };
+
+    const handlePreviewPDF = () => {
+        if (!userProfile) {
+            showToast("User profile not loaded", "error");
+            return;
+        }
+
+        // Create a preview object without saving to Firestore
+        const previewInvoice: any = {
+            invoiceNumber: editingId ? "PREVIEW" : "PREVIEW",
+            createdAt: new Date(),
+            dueDate: formData.dueDate ? new Date(formData.dueDate) : new Date(),
+            status: formData.status,
+            templateId,
+            clientName: formData.clientName,
+            clientEmail: formData.clientEmail,
+            clientAddress: formData.clientAddress,
+            clientPhone: formData.clientPhone,
+            billing: { ...billing },
+            milestones: milestones.map((m, idx) => {
+                const items = (m.items || []).map((it) => ({
+                    description: it.description,
+                    quantity: Number(it.quantity) || 0,
+                    unitPrice: Number(it.unitPrice) || 0,
+                    total: (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0),
+                }));
+
+                const subtotal = items.reduce(
+                    (sum, it) => sum + (Number(it.total) || 0),
+                    0
+                );
+
+                return {
+                    title: m.title || `Milestone ${idx + 1}`,
+                    description: m.description,
+                    dueDate: m.dueDate ? new Date(m.dueDate) : undefined,
+                    status: m.status,
+                    items,
+                    subtotal,
+                };
+            }),
+        };
+
+        // Compute totals
+        const subtotal = (previewInvoice.milestones || []).reduce(
+            (sum: number, ms: any) => sum + (Number(ms.subtotal) || 0),
+            0
+        );
+        const taxRate = Number(formData.taxRate) || 0;
+        const taxAmount = (subtotal * taxRate) / 100;
+        const totalAmount = subtotal + taxAmount;
+
+        previewInvoice.subtotal = subtotal;
+        previewInvoice.taxRate = taxRate;
+        previewInvoice.taxAmount = taxAmount;
+        previewInvoice.totalAmount = totalAmount;
+        previewInvoice.deposit = {
+            enabled: depositEnabled,
+            ratePercent: Number(depositRate) || 0,
+            amount: depositEnabled
+                ? (totalAmount * (Number(depositRate) || 0)) / 100
+                : 0,
+            dueDate: depositDueDate ? new Date(depositDueDate) : undefined,
+        };
+
+        try {
+            generateInvoicePDF(previewInvoice, userProfile, "Standalone Invoice");
+            showToast("Preview PDF generated!", "success");
+        } catch (error: any) {
+            showToast(
+                "Failed to generate preview PDF: " + (error?.message ?? "Unknown error"),
+                "error"
+            );
+        }
+    };
+
+    const handleDelete = async (invoiceId: string) => {
+        if (!user) return;
+        if (!window.confirm("Are you sure you want to delete this invoice?")) return;
+
+        try {
+            await deleteStandaloneInvoice(user.uid, invoiceId);
+            showToast("Invoice deleted successfully!", "success");
+            await loadInvoices(user.uid);
+
+            if (editingId === invoiceId) {
+                resetForm();
+                setShowForm(false);
+            }
+        } catch (error: any) {
+            showToast(
+                "Failed to delete invoice: " + (error?.message ?? "Unknown error"),
+                "error"
+            );
+        }
+    };
+
+    // -------------------- RENDER --------------------
+    if (loading) {
+        return (
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    minHeight: "400px",
+                }}
+            >
+                <div>Loading...</div>
+            </div>
+        );
+    }
+
+    if (!user) {
+        return (
+            <div
+                style={{
+                    textAlign: "center",
+                    padding: "var(--spacing-3xl) 0",
+                }}
+            >
+                <p>Please log in to view invoices.</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="container" style={{ padding: "var(--spacing-lg)" }}>
+            <div style={{ marginBottom: "var(--spacing-lg)" }}>
+                <Link
+                    to="/projects"
+                    style={{
+                        color: "var(--color-primary)",
+                        textDecoration: "none",
+                        fontSize: "var(--font-size-sm)",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "var(--spacing-xs)",
+                    }}
+                >
+                    ← Back to Projects
+                </Link>
+            </div>
+
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "var(--spacing-2xl)",
+                }}
+            >
+                <div>
+                    <h2 style={{ margin: 0, fontSize: "var(--font-size-2xl)" }}>
+                        Standalone Invoices
+                    </h2>
+                    <p
+                        style={{
+                            margin: "var(--spacing-xs) 0 0",
+                            fontSize: "var(--font-size-sm)",
+                            color: "var(--color-text-secondary)",
+                        }}
+                    >
+                        Create and manage invoices without a project
+                    </p>
+                </div>
+
+                {!showForm ? (
+                    <button
+                        className="btn btn-primary"
+                        onClick={() => {
+                            resetForm();
+                            setShowForm(true);
+                        }}
+                    >
+                        + New Invoice
+                    </button>
+                ) : (
+                    <div style={{ display: "flex", gap: "var(--spacing-sm)" }}>
+                        <h3 style={{ margin: 0, fontSize: "var(--font-size-lg)" }}>
+                            {editingId ? "Update Invoice" : "Create New Invoice"}
+                        </h3>
+                        <button
+                            className="btn btn-outline"
+                            onClick={() => {
+                                setShowForm(false);
+                                resetForm();
+                            }}
+                            style={{ fontSize: "var(--font-size-xs)", padding: "6px 12px" }}
+                            disabled={saving}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {showForm && (
+                <div style={{ marginBottom: "var(--spacing-3xl)" }}>
+                    <form onSubmit={handleSubmit}>
+                        {/* CLIENT + INVOICE DETAILS */}
+                        <div className="quotation-form-grid">
+                            <div className="quotation-form-section">
+                                <h4 className="quotation-section-title">Client Information</h4>
+
+                                <div className="form-group">
+                                    <label className="form-label">Select Client</label>
+                                    <select
+                                        className="form-control"
+                                        value={selectedClientId}
+                                        onChange={(e) => handleSelectClient(e.target.value)}
+                                        disabled={saving}
+                                    >
+                                        <option value="">-- Choose saved client --</option>
+                                        {clients.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.name} ({c.email})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {!editingId && (
+                                    <div style={{ marginBottom: "var(--spacing-md)" }}>
+                                        <label
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "8px",
+                                                fontSize: "var(--font-size-sm)",
+                                                cursor: "pointer",
+                                            }}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={saveClient}
+                                                onChange={(e) => setSaveClient(e.target.checked)}
+                                                disabled={saving}
+                                            />
+                                            Save client for next time
+                                        </label>
+                                    </div>
+                                )}
+
+                                <div className="form-group">
+                                    <label className="form-label">Client Name *</label>
+                                    <input
+                                        type="text"
+                                        name="clientName"
+                                        className="form-control"
+                                        value={formData.clientName}
+                                        onChange={handleInputChange}
+                                        required
+                                        disabled={saving}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Client Email *</label>
+                                    <input
+                                        type="email"
+                                        name="clientEmail"
+                                        className="form-control"
+                                        value={formData.clientEmail}
+                                        onChange={handleInputChange}
+                                        required
+                                        disabled={saving}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Client Address</label>
+                                    <textarea
+                                        name="clientAddress"
+                                        className="form-control"
+                                        value={formData.clientAddress}
+                                        onChange={handleInputChange}
+                                        rows={3}
+                                        disabled={saving}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Client Phone</label>
+                                    <input
+                                        type="tel"
+                                        name="clientPhone"
+                                        className="form-control"
+                                        value={formData.clientPhone}
+                                        onChange={handleInputChange}
+                                        disabled={saving}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="quotation-form-section">
+                                <h4 className="quotation-section-title">Invoice Details</h4>
+
+                                {/* Template Selector */}
+                                <div className="form-group">
+                                    <label className="form-label">Template</label>
+                                    <select
+                                        className="form-control"
+                                        value={templateId}
+                                        onChange={(e) =>
+                                            setTemplateId(e.target.value as InvoiceTemplateId)
+                                        }
+                                        disabled={saving}
+                                    >
+                                        <option value="classic">Classic</option>
+                                        <option value="modern">Modern</option>
+                                        <option value="minimal">Minimal</option>
+                                    </select>
+                                    <div style={{ marginTop: 8 }}>
+                                        <button
+                                            type="button"
+                                            className="btn btn-outline"
+                                            onClick={handlePreviewPDF}
+                                            style={{
+                                                fontSize: "var(--font-size-xs)",
+                                                padding: "6px 12px",
+                                            }}
+                                            disabled={saving}
+                                        >
+                                            👁️ Preview PDF
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Status</label>
+                                    <select
+                                        name="status"
+                                        className="form-control"
+                                        value={formData.status}
+                                        onChange={handleInputChange}
+                                        disabled={saving}
+                                    >
+                                        <option value="pending">Pending</option>
+                                        <option value="paid">Paid</option>
+                                        <option value="cancelled">Cancelled</option>
+                                    </select>
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Tax Rate (%)</label>
+                                    <input
+                                        type="number"
+                                        name="taxRate"
+                                        className="form-control"
+                                        value={formData.taxRate}
+                                        onChange={handleInputChange}
+                                        min="0"
+                                        max="100"
+                                        step="0.01"
+                                        disabled={saving}
+                                    />
+                                </div>
+
+                                <div className="form-group">
+                                    <label className="form-label">Due Date</label>
+                                    <input
+                                        type="date"
+                                        name="dueDate"
+                                        className="form-control"
+                                        value={formData.dueDate}
+                                        onChange={handleInputChange}
+                                        disabled={saving}
+                                    />
+                                </div>
+
+                                {/* Deposit */}
+                                <div
+                                    className="form-group"
+                                    style={{ marginTop: "var(--spacing-lg)" }}
+                                >
+                                    <h4
+                                        className="quotation-section-title"
+                                        style={{ marginBottom: "var(--spacing-sm)" }}
+                                    >
+                                        Deposit
+                                    </h4>
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            gap: "8px",
+                                            alignItems: "center",
+                                            marginBottom: "10px",
+                                        }}
+                                    >
+                                        <input
+                                            id="depositEnabled"
+                                            type="checkbox"
+                                            checked={depositEnabled}
+                                            onChange={(e) => setDepositEnabled(e.target.checked)}
+                                            disabled={saving}
+                                        />
+                                        <label
+                                            htmlFor="depositEnabled"
+                                            className="form-label"
+                                            style={{ margin: 0 }}
+                                        >
+                                            Enable deposit
+                                        </label>
+                                    </div>
+
+                                    {depositEnabled && (
+                                        <>
+                                            <div className="form-group">
+                                                <label className="form-label">Deposit Rate</label>
+                                                <select
+                                                    className="form-control"
+                                                    value={depositPreset}
+                                                    onChange={(e) =>
+                                                        setDepositPreset(e.target.value as any)
+                                                    }
+                                                    disabled={saving}
+                                                >
+                                                    <option value={15}>15%</option>
+                                                    <option value={30}>30%</option>
+                                                    <option value={50}>50%</option>
+                                                    <option value="custom">Custom</option>
+                                                </select>
+                                            </div>
+
+                                            {depositPreset === "custom" && (
+                                                <div className="form-group">
+                                                    <label className="form-label">Custom Rate (%)</label>
+                                                    <input
+                                                        type="number"
+                                                        className="form-control"
+                                                        value={depositCustomRate}
+                                                        onChange={(e) =>
+                                                            setDepositCustomRate(Number(e.target.value) || 0)
+                                                        }
+                                                        min="0"
+                                                        max="100"
+                                                        step="0.01"
+                                                        disabled={saving}
+                                                    />
+                                                </div>
+                                            )}
+
+                                            <div className="form-group">
+                                                <label className="form-label">Deposit Due Date</label>
+                                                <input
+                                                    type="date"
+                                                    className="form-control"
+                                                    value={depositDueDate}
+                                                    onChange={(e) => setDepositDueDate(e.target.value)}
+                                                    disabled={saving}
+                                                />
+                                            </div>
+
+                                            <div
+                                                style={{
+                                                    fontSize: "var(--font-size-sm)",
+                                                    color: "var(--color-text-secondary)",
+                                                }}
+                                            >
+                                                Deposit Amount:{" "}
+                                                <strong>R{depositAmount.toFixed(2)}</strong>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* MILESTONES + NESTED ITEMS */}
+                        <div className="quotation-items-section">
+                            <div
+                                className="quotation-items-header"
+                                style={{ alignItems: "center" }}
+                            >
+                                <h4 className="quotation-section-title">Milestones / Phases</h4>
+                                <button
+                                    type="button"
+                                    className="btn btn-outline"
+                                    onClick={addMilestone}
+                                    style={{ fontSize: "var(--font-size-xs)", padding: "6px 12px" }}
+                                    disabled={saving}
+                                >
+                                    + Add Milestone
+                                </button>
+                            </div>
+
+                            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                                {milestones.map((m, milestoneIndex) => {
+                                    const msSubtotal = milestoneTotals[milestoneIndex] || 0;
+
+                                    return (
+                                        <div
+                                            key={milestoneIndex}
+                                            style={{
+                                                border: "1px solid var(--color-border-light)",
+                                                borderRadius: 12,
+                                                padding: 12,
+                                                background: "var(--color-bg)",
+                                            }}
+                                        >
+                                            <div
+                                                style={{
+                                                    display: "flex",
+                                                    justifyContent: "space-between",
+                                                    gap: 12,
+                                                    flexWrap: "wrap",
+                                                }}
+                                            >
+                                                <div style={{ flex: 1, minWidth: 220 }}>
+                                                    <div className="form-group">
+                                                        <label className="form-label">Title *</label>
+                                                        <input
+                                                            className="form-control"
+                                                            value={m.title}
+                                                            onChange={(e) =>
+                                                                handleMilestoneChange(
+                                                                    milestoneIndex,
+                                                                    "title",
+                                                                    e.target.value
+                                                                )
+                                                            }
+                                                            placeholder="e.g. Phase 1: Foundation"
+                                                            disabled={saving}
+                                                        />
+                                                    </div>
+
+                                                    <div className="form-group">
+                                                        <label className="form-label">Description</label>
+                                                        <textarea
+                                                            className="form-control"
+                                                            value={m.description}
+                                                            onChange={(e) =>
+                                                                handleMilestoneChange(
+                                                                    milestoneIndex,
+                                                                    "description",
+                                                                    e.target.value
+                                                                )
+                                                            }
+                                                            rows={2}
+                                                            placeholder="Short description"
+                                                            disabled={saving}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div style={{ width: 240, minWidth: 220 }}>
+                                                    <div className="form-group">
+                                                        <label className="form-label">Due Date</label>
+                                                        <input
+                                                            type="date"
+                                                            className="form-control"
+                                                            value={m.dueDate}
+                                                            onChange={(e) =>
+                                                                handleMilestoneChange(
+                                                                    milestoneIndex,
+                                                                    "dueDate",
+                                                                    e.target.value
+                                                                )
+                                                            }
+                                                            disabled={saving}
+                                                        />
+                                                    </div>
+
+                                                    <div className="form-group">
+                                                        <label className="form-label">Status</label>
+                                                        <select
+                                                            className="form-control"
+                                                            value={m.status}
+                                                            onChange={(e) =>
+                                                                handleMilestoneChange(
+                                                                    milestoneIndex,
+                                                                    "status",
+                                                                    e.target.value
+                                                                )
+                                                            }
+                                                            disabled={saving}
+                                                        >
+                                                            <option value="not_started">Not started</option>
+                                                            <option value="in_progress">In progress</option>
+                                                            <option value="completed">Completed</option>
+                                                        </select>
+                                                    </div>
+
+                                                    <div
+                                                        style={{
+                                                            display: "flex",
+                                                            justifyContent: "space-between",
+                                                            alignItems: "center",
+                                                            marginTop: 10,
+                                                        }}
+                                                    >
+                                                        <div
+                                                            style={{
+                                                                fontSize: "var(--font-size-sm)",
+                                                                color: "var(--color-text-secondary)",
+                                                            }}
+                                                        >
+                                                            Milestone Total:
+                                                        </div>
+                                                        <div style={{ fontWeight: 700 }}>
+                                                            R{msSubtotal.toFixed(2)}
+                                                        </div>
+                                                    </div>
+
+                                                    {milestones.length > 1 && (
+                                                        <div style={{ marginTop: 10 }}>
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-outline"
+                                                                onClick={() => removeMilestone(milestoneIndex)}
+                                                                style={{
+                                                                    fontSize: "var(--font-size-xs)",
+                                                                    padding: "6px 12px",
+                                                                }}
+                                                                disabled={saving}
+                                                            >
+                                                                🗑️ Remove Milestone
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Items for this milestone */}
+                                            <div style={{ marginTop: 12 }}>
+                                                <div
+                                                    className="quotation-items-header"
+                                                    style={{ alignItems: "center" }}
+                                                >
+                                                    <h4
+                                                        className="quotation-section-title"
+                                                        style={{ margin: 0 }}
+                                                    >
+                                                        Items
+                                                    </h4>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-outline"
+                                                        onClick={() => addItemToMilestone(milestoneIndex)}
+                                                        style={{
+                                                            fontSize: "var(--font-size-xs)",
+                                                            padding: "6px 12px",
+                                                        }}
+                                                        disabled={saving}
+                                                    >
+                                                        + Add Item
+                                                    </button>
+                                                </div>
+
+                                                <div className="quotation-items-table">
+                                                    <div className="quotation-items-header-row">
+                                                        <div style={{ flex: "2" }}>Description</div>
+                                                        <div style={{ width: "80px" }}>Qty</div>
+                                                        <div style={{ width: "110px" }}>Unit Price</div>
+                                                        <div style={{ width: "110px" }}>Total</div>
+                                                        <div style={{ width: "40px" }}></div>
+                                                    </div>
+
+                                                    {m.items.map((it, itemIndex) => (
+                                                        <div key={itemIndex} className="quotation-item-row">
+                                                            <input
+                                                                type="text"
+                                                                className="form-control"
+                                                                value={it.description}
+                                                                onChange={(e) =>
+                                                                    handleMilestoneItemChange(
+                                                                        milestoneIndex,
+                                                                        itemIndex,
+                                                                        "description",
+                                                                        e.target.value
+                                                                    )
+                                                                }
+                                                                placeholder="Item description"
+                                                                style={{
+                                                                    flex: "2",
+                                                                    marginRight: "var(--spacing-sm)",
+                                                                }}
+                                                                disabled={saving}
+                                                            />
+
+                                                            <input
+                                                                type="number"
+                                                                className="form-control"
+                                                                value={it.quantity}
+                                                                onChange={(e) =>
+                                                                    handleMilestoneItemChange(
+                                                                        milestoneIndex,
+                                                                        itemIndex,
+                                                                        "quantity",
+                                                                        e.target.value
+                                                                    )
+                                                                }
+                                                                min="1"
+                                                                style={{
+                                                                    width: "80px",
+                                                                    marginRight: "var(--spacing-sm)",
+                                                                }}
+                                                                disabled={saving}
+                                                            />
+
+                                                            <input
+                                                                type="number"
+                                                                className="form-control"
+                                                                value={it.unitPrice}
+                                                                onChange={(e) =>
+                                                                    handleMilestoneItemChange(
+                                                                        milestoneIndex,
+                                                                        itemIndex,
+                                                                        "unitPrice",
+                                                                        e.target.value
+                                                                    )
+                                                                }
+                                                                min="0"
+                                                                step="0.01"
+                                                                style={{
+                                                                    width: "110px",
+                                                                    marginRight: "var(--spacing-sm)",
+                                                                }}
+                                                                disabled={saving}
+                                                            />
+
+                                                            <div
+                                                                style={{
+                                                                    width: "110px",
+                                                                    padding: "8px 12px",
+                                                                    fontSize: "var(--font-size-sm)",
+                                                                }}
+                                                            >
+                                                                R{(Number(it.total) || 0).toFixed(2)}
+                                                            </div>
+
+                                                            {m.items.length > 1 && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-outline"
+                                                                    onClick={() =>
+                                                                        removeItemFromMilestone(
+                                                                            milestoneIndex,
+                                                                            itemIndex
+                                                                        )
+                                                                    }
+                                                                    style={{
+                                                                        width: "40px",
+                                                                        padding: "6px",
+                                                                        fontSize: "var(--font-size-xs)",
+                                                                    }}
+                                                                    disabled={saving}
+                                                                >
+                                                                    ×
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Invoice totals */}
+                            <div className="quotation-totals" style={{ marginTop: 16 }}>
+                                <div className="quotation-total-row">
+                                    <span>Subtotal:</span>
+                                    <span>R{totals.subtotal.toFixed(2)}</span>
+                                </div>
+                                <div className="quotation-total-row">
+                                    <span>Tax ({Number(formData.taxRate) || 0}%):</span>
+                                    <span>R{totals.taxAmount.toFixed(2)}</span>
+                                </div>
+                                <div className="quotation-total-row quotation-total-final">
+                                    <span>Total:</span>
+                                    <span>R{totals.totalAmount.toFixed(2)}</span>
+                                </div>
+                                {depositEnabled && (
+                                    <div className="quotation-total-row">
+                                        <span>Deposit ({depositRate}%):</span>
+                                        <span>R{depositAmount.toFixed(2)}</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Billing Details */}
+                        <div className="quotation-items-section">
+                            <h4 className="quotation-section-title">
+                                Billing Details (Your Business)
+                            </h4>
+
+                            <div className="quotation-form-grid">
+                                <div className="quotation-form-section">
+                                    <div className="form-group">
+                                        <label className="form-label">Business Name</label>
+                                        <input
+                                            name="businessName"
+                                            className="form-control"
+                                            value={billing.businessName}
+                                            onChange={handleBillingChange}
+                                            disabled={saving}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label">Contact Name</label>
+                                        <input
+                                            name="contactName"
+                                            className="form-control"
+                                            value={billing.contactName}
+                                            onChange={handleBillingChange}
+                                            disabled={saving}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label">Email</label>
+                                        <input
+                                            name="email"
+                                            type="email"
+                                            className="form-control"
+                                            value={billing.email}
+                                            onChange={handleBillingChange}
+                                            disabled={saving}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label">Phone</label>
+                                        <input
+                                            name="phone"
+                                            className="form-control"
+                                            value={billing.phone}
+                                            onChange={handleBillingChange}
+                                            disabled={saving}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label">Address</label>
+                                        <textarea
+                                            name="address"
+                                            className="form-control"
+                                            value={billing.address}
+                                            onChange={handleBillingChange}
+                                            rows={3}
+                                            disabled={saving}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="quotation-form-section">
+                                    <h4 className="quotation-section-title">Payment Details</h4>
+
+                                    <div className="form-group">
+                                        <label className="form-label">Bank Name</label>
+                                        <input
+                                            name="bankName"
+                                            className="form-control"
+                                            value={billing.bankName}
+                                            onChange={handleBillingChange}
+                                            disabled={saving}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label">Account Name</label>
+                                        <input
+                                            name="accountName"
+                                            className="form-control"
+                                            value={billing.accountName}
+                                            onChange={handleBillingChange}
+                                            disabled={saving}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label">Account Number</label>
+                                        <input
+                                            name="accountNumber"
+                                            className="form-control"
+                                            value={billing.accountNumber}
+                                            onChange={handleBillingChange}
+                                            disabled={saving}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label">Branch Code</label>
+                                        <input
+                                            name="branchCode"
+                                            className="form-control"
+                                            value={billing.branchCode}
+                                            onChange={handleBillingChange}
+                                            disabled={saving}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label">Account Type</label>
+                                        <select
+                                            name="accountType"
+                                            className="form-control"
+                                            value={billing.accountType || ""}
+                                            onChange={handleBillingChange}
+                                            disabled={saving}
+                                        >
+                                            <option value="">Select account type</option>
+                                            <option value="savings">Savings</option>
+                                            <option value="cheque">Cheque</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label className="form-label">Payment Reference Note</label>
+                                        <input
+                                            name="paymentReferenceNote"
+                                            className="form-control"
+                                            value={billing.paymentReferenceNote}
+                                            onChange={handleBillingChange}
+                                            disabled={saving}
+                                            placeholder="e.g. Use invoice number as reference"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ACTIONS */}
+                        <div className="profile-actions">
+                            <button
+                                type="button"
+                                className="btn btn-outline"
+                                onClick={() => {
+                                    setShowForm(false);
+                                    resetForm();
+                                }}
+                                disabled={saving}
+                            >
+                                Cancel
+                            </button>
+                            <button type="submit" className="btn btn-primary" disabled={saving}>
+                                {saving
+                                    ? editingId
+                                        ? "Updating..."
+                                        : "Creating..."
+                                    : editingId
+                                        ? "Update Invoice"
+                                        : "Create Invoice"}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
+
+            {invoices.length === 0 ? (
+                <div
+                    style={{
+                        textAlign: "center",
+                        padding: "var(--spacing-3xl) 0",
+                        color: "var(--color-text-secondary)",
+                        marginTop: "var(--spacing-2xl)",
+                    }}
+                >
+                    <p>No invoices yet. Create your first standalone invoice!</p>
+                </div>
+            ) : (
+                <div style={{ marginTop: "var(--spacing-2xl)" }}>
+                    <h3
+                        style={{
+                            marginBottom: "var(--spacing-lg)",
+                            fontSize: "var(--font-size-xl)",
+                        }}
+                    >
+                        All Invoices
+                    </h3>
+
+                    <div className="quotation-list">
+                        {paginatedInvoices.map((inv) => (
+                            <div key={inv.id} className="quotation-card">
+                                <div className="quotation-card-header">
+                                    <div>
+                                        <h4
+                                            style={{
+                                                margin: 0,
+                                                fontSize: "var(--font-size-lg)",
+                                                marginBottom: "var(--spacing-xs)",
+                                            }}
+                                        >
+                                            {inv.invoiceNumber}
+                                        </h4>
+                                        <p
+                                            style={{
+                                                margin: 0,
+                                                fontSize: "var(--font-size-sm)",
+                                                color: "var(--color-text-secondary)",
+                                            }}
+                                        >
+                                            {inv.clientName}
+                                        </p>
+                                        <p
+                                            style={{
+                                                margin: 0,
+                                                fontSize: "var(--font-size-xs)",
+                                                color: "var(--color-text-muted)",
+                                                marginTop: "var(--spacing-xs)",
+                                            }}
+                                        >
+                                            {inv.clientEmail}
+                                        </p>
+                                        <p
+                                            style={{
+                                                margin: 0,
+                                                fontSize: "var(--font-size-xs)",
+                                                color: "var(--color-text-muted)",
+                                                marginTop: "var(--spacing-xs)",
+                                            }}
+                                        >
+                                            Template: {(inv as any).templateId || "classic"}
+                                        </p>
+                                    </div>
+                                    <div className="quotation-card-actions">
+                    <span
+                        className={`quotation-status quotation-status-${inv.status}`}
+                    >
+                      {inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}
+                    </span>
+                                    </div>
+                                </div>
+
+                                <div className="quotation-card-details">
+                                    <div>
+                    <span
+                        style={{
+                            fontSize: "var(--font-size-xs)",
+                            color: "var(--color-text-secondary)",
+                        }}
+                    >
+                      Total:
+                    </span>
+                                        <span
+                                            style={{
+                                                fontSize: "var(--font-size-lg)",
+                                                fontWeight: "var(--font-weight-semibold)",
+                                                marginLeft: "var(--spacing-sm)",
+                                            }}
+                                        >
+                      R{(Number((inv as any).totalAmount) || 0).toFixed(2)}
+                    </span>
+                                    </div>
+                                    <div
+                                        style={{
+                                            fontSize: "var(--font-size-xs)",
+                                            color: "var(--color-text-secondary)",
+                                        }}
+                                    >
+                                        {(inv.createdAt as any)?.toLocaleDateString?.()
+                                            ? (inv.createdAt as any).toLocaleDateString()
+                                            : new Date(inv.createdAt as any).toLocaleDateString()}
+                                    </div>
+                                </div>
+
+                                <div
+                                    style={{
+                                        display: "flex",
+                                        gap: "var(--spacing-xs)",
+                                        marginTop: "var(--spacing-md)",
+                                        paddingTop: "var(--spacing-md)",
+                                        borderTop: "1px solid var(--color-border-light)",
+                                        flexWrap: "wrap",
+                                    }}
+                                >
+                                    <button
+                                        className="btn btn-outline"
+                                        onClick={() => handleDownloadPDF(inv)}
+                                        style={{
+                                            fontSize: "var(--font-size-xs)",
+                                            padding: "6px 12px",
+                                        }}
+                                    >
+                                        📄 Download PDF
+                                    </button>
+                                    <button
+                                        className="btn btn-outline"
+                                        onClick={() => startEdit(inv)}
+                                        style={{
+                                            fontSize: "var(--font-size-xs)",
+                                            padding: "6px 12px",
+                                        }}
+                                    >
+                                        ✏️ Edit
+                                    </button>
+                                    <button
+                                        className="btn btn-outline"
+                                        onClick={() => handleDelete(inv.id!)}
+                                        style={{
+                                            fontSize: "var(--font-size-xs)",
+                                            padding: "6px 12px",
+                                        }}
+                                    >
+                                        🗑️ Delete
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Pagination Controls */}
+                    <div
+                        style={{
+                            marginTop: "var(--spacing-lg)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "12px",
+                            flexWrap: "wrap",
+                        }}
+                    >
+                        {/* Page size */}
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span
+                  style={{
+                      fontSize: "var(--font-size-xs)",
+                      color: "var(--color-text-secondary)",
+                  }}
+              >
+                Rows per page:
+              </span>
+                            <select
+                                className="form-control"
+                                value={pageSize}
+                                onChange={(e) => setPageSize(Number(e.target.value) || 6)}
+                                style={{ width: "120px", fontSize: "var(--font-size-sm)" }}
+                            >
+                                <option value={3}>3</option>
+                                <option value={6}>6</option>
+                                <option value={10}>10</option>
+                                <option value={20}>20</option>
+                            </select>
+                        </div>
+
+                        {/* Info */}
+                        <div
+                            style={{
+                                fontSize: "var(--font-size-xs)",
+                                color: "var(--color-text-secondary)",
+                            }}
+                        >
+                            Showing{" "}
+                            <strong>
+                                {totalInvoices === 0 ? 0 : (page - 1) * pageSize + 1}
+                            </strong>{" "}
+                            to <strong>{Math.min(page * pageSize, totalInvoices)}</strong> of{" "}
+                            <strong>{totalInvoices}</strong>
+                        </div>
+
+                        {/* Buttons */}
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <button
+                                className="btn btn-outline"
+                                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                disabled={page <= 1}
+                                style={{
+                                    fontSize: "var(--font-size-xs)",
+                                    padding: "6px 12px",
+                                }}
+                            >
+                                ← Prev
+                            </button>
+
+                            {/* Page numbers */}
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                {Array.from({ length: totalPages }).map((_, idx) => {
+                                    const p = idx + 1;
+                                    const isEdge = p === 1 || p === totalPages;
+                                    const isNear = Math.abs(p - page) <= 1;
+
+                                    if (!isEdge && !isNear) return null;
+
+                                    return (
+                                        <button
+                                            key={p}
+                                            className={page === p ? "btn btn-primary" : "btn btn-outline"}
+                                            onClick={() => setPage(p)}
+                                            style={{
+                                                fontSize: "var(--font-size-xs)",
+                                                padding: "6px 10px",
+                                                minWidth: "40px",
+                                            }}
+                                        >
+                                            {p}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <button
+                                className="btn btn-outline"
+                                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                                disabled={page >= totalPages}
+                                style={{
+                                    fontSize: "var(--font-size-xs)",
+                                    padding: "6px 12px",
+                                }}
+                            >
+                                Next →
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default StandaloneInvoices;

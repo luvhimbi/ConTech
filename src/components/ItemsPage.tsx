@@ -11,6 +11,7 @@ import {
     updateCatalogItem,
     type CatalogItem,
     type ItemType,
+    bulkCreateCatalogItems,
 } from "../services/itemService";
 
 const PAGE_SIZES = [5, 10, 20, 50] as const;
@@ -22,6 +23,59 @@ function money(n: any) {
 
 function classNames(...xs: Array<string | false | null | undefined>) {
     return xs.filter(Boolean).join(" ");
+}
+
+type BulkRow = {
+    name: string;
+    description?: string;
+    unitPrice: number;
+    unit?: string;
+    type: ItemType;
+    isActive: boolean;
+};
+
+function parseBulkText(text: string): BulkRow[] {
+    // Accepts CSV-like lines:
+    // name,type,unitPrice,unit,isActive,description
+    // Example:
+    // Labour,service,350,hour,true,General labour
+    // Cement 50kg,product,120,bag,true,
+    const lines = text
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+
+    const out: BulkRow[] = [];
+
+    for (const line of lines) {
+        // allow comma separated OR tab separated
+        const parts = line.includes("\t") ? line.split("\t") : line.split(",");
+        const raw = parts.map((p) => (p ?? "").trim());
+
+        const name = raw[0] ?? "";
+        const typeRaw = (raw[1] ?? "service").toLowerCase();
+        const unitPriceRaw = raw[2] ?? "0";
+        const unit = raw[3] ?? "";
+        const activeRaw = (raw[4] ?? "true").toLowerCase();
+        const description = raw.slice(5).join(",").trim(); // allow commas in description
+
+        if (!name.trim()) continue;
+
+        const type: ItemType = typeRaw === "product" ? "product" : "service";
+        const unitPrice = Number(unitPriceRaw);
+        const isActive = activeRaw === "false" || activeRaw === "0" || activeRaw === "no" ? false : true;
+
+        out.push({
+            name: name.trim(),
+            type,
+            unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
+            unit: unit.trim() || undefined,
+            isActive,
+            description: description || undefined,
+        });
+    }
+
+    return out;
 }
 
 const ItemsPage: React.FC = () => {
@@ -37,6 +91,10 @@ const ItemsPage: React.FC = () => {
     const [search, setSearch] = useState("");
     const [showForm, setShowForm] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
+
+    // Bulk UI
+    const [showBulk, setShowBulk] = useState(false);
+    const [bulkText, setBulkText] = useState("");
 
     // table controls
     const [page, setPage] = useState(1);
@@ -105,11 +163,14 @@ const ItemsPage: React.FC = () => {
     const startCreate = () => {
         resetForm();
         setShowForm(true);
+        setShowBulk(false);
     };
 
     const startEdit = (it: CatalogItem) => {
         setEditingId(it.id || null);
         setShowForm(true);
+        setShowBulk(false);
+
         setForm({
             name: it.name || "",
             description: it.description || "",
@@ -249,6 +310,43 @@ const ItemsPage: React.FC = () => {
         }
     };
 
+    const handleBulkSave = async () => {
+        if (!user) return;
+
+        const rows = parseBulkText(bulkText);
+
+        if (rows.length === 0) {
+            showToast("Paste at least 1 item row.", "error");
+            return;
+        }
+
+        for (const r of rows) {
+            if (!r.name.trim()) {
+                showToast("Every row must have a name.", "error");
+                return;
+            }
+            if (Number.isNaN(r.unitPrice) || r.unitPrice < 0) {
+                showToast(`Invalid unit price for "${r.name}".`, "error");
+                return;
+            }
+        }
+
+        setSaving(true);
+        try {
+            await bulkCreateCatalogItems(user.uid, rows);
+            showToast(`Added ${rows.length} item(s).`, "success");
+
+            await refresh(user.uid);
+
+            setBulkText("");
+            setShowBulk(false);
+        } catch (e: any) {
+            showToast("Bulk add failed: " + (e?.message ?? "Unknown error"), "error");
+        } finally {
+            setSaving(false);
+        }
+    };
+
     const toggleActive = async (it: CatalogItem) => {
         if (!user || !it.id) return;
 
@@ -342,15 +440,35 @@ const ItemsPage: React.FC = () => {
                                 ))}
                             </select>
 
-                            <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-                                {totalItems} item(s)
-                            </div>
+                            <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{totalItems} item(s)</div>
                         </div>
 
                         {!showForm ? (
-                            <button className="btn btn-primary" onClick={startCreate}>
-                                + New Item
-                            </button>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                <button
+                                    className="btn btn-outline"
+                                    onClick={() => {
+                                        setShowBulk((v) => !v);
+                                        if (!showBulk) setShowForm(false);
+                                    }}
+                                    disabled={saving}
+                                    type="button"
+                                >
+                                    Bulk Add
+                                </button>
+
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={() => {
+                                        setShowBulk(false);
+                                        startCreate();
+                                    }}
+                                    disabled={saving}
+                                    type="button"
+                                >
+                                    + New Item
+                                </button>
+                            </div>
                         ) : (
                             <button
                                 className="btn btn-outline"
@@ -359,19 +477,124 @@ const ItemsPage: React.FC = () => {
                                     resetForm();
                                 }}
                                 disabled={saving}
+                                type="button"
                             >
                                 Close
                             </button>
                         )}
                     </div>
 
+                    {/* Bulk Add panel */}
+                    {showBulk ? (
+                        <div className="quotation-form-container" style={{ marginBottom: 18 }}>
+                            <div
+                                className="quotation-form-header"
+                                style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    gap: 10,
+                                    alignItems: "center",
+                                    flexWrap: "wrap",
+                                }}
+                            >
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                    <h3 style={{ margin: 0, fontSize: "var(--font-size-xl)" }}>Bulk Add Items</h3>
+
+                                    <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+                                        Paste one item per line in this format:{" "}
+                                        <span style={{ fontFamily: "monospace" }}>name,type,unitPrice,unit,isActive,description</span>
+                                    </div>
+                                </div>
+
+                                <button
+                                    className="btn btn-outline"
+                                    onClick={() => {
+                                        setShowBulk(false);
+                                        setBulkText("");
+                                    }}
+                                    disabled={saving}
+                                    type="button"
+                                >
+                                    Close
+                                </button>
+                            </div>
+
+                            <div style={{ marginTop: 10, fontSize: 12, color: "var(--color-text-secondary)" }}>
+                                Example:
+                                <div
+                                    style={{
+                                        marginTop: 6,
+                                        fontFamily: "monospace",
+                                        fontSize: 12,
+                                        whiteSpace: "pre-wrap",
+                                        border: "1px solid var(--color-border-light)",
+                                        borderRadius: "var(--border-radius)",
+                                        padding: 10,
+                                        background: "var(--color-surface)",
+                                    }}
+                                >
+                                    Labour,service,350,hour,true,General labour
+                                    {"\n"}
+                                    Cement 50kg,product,120,bag,true,
+                                </div>
+                                <div style={{ marginTop: 6 }}>
+                                    Type: <b>service</b> or <b>product</b>. Active: <b>true</b> / <b>false</b>.
+                                </div>
+                            </div>
+
+                            <div className="form-group" style={{ marginTop: 12 }}>
+                <textarea
+                    className="form-control"
+                    rows={10}
+                    value={bulkText}
+                    onChange={(e) => setBulkText(e.target.value)}
+                    disabled={saving}
+                    placeholder={`Labour,service,350,hour,true,General labour\nCement 50kg,product,120,bag,true,`}
+                />
+                            </div>
+
+                            <div
+                                style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                    gap: 10,
+                                    flexWrap: "wrap",
+                                    marginTop: 10,
+                                }}
+                            >
+                                <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+                                    Preview count: <b>{parseBulkText(bulkText).length}</b>
+                                </div>
+
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                    <button
+                                        className="btn btn-outline"
+                                        type="button"
+                                        onClick={() => setBulkText("")}
+                                        disabled={saving}
+                                    >
+                                        Clear
+                                    </button>
+
+                                    <button
+                                        className="btn btn-primary"
+                                        type="button"
+                                        onClick={handleBulkSave}
+                                        disabled={saving}
+                                    >
+                                        {saving ? "Saving..." : "Save Bulk Items"}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    ) : null}
+
                     {/* Form */}
                     {showForm ? (
                         <div className="quotation-form-container" style={{ marginBottom: 18 }}>
                             <div className="quotation-form-header">
-                                <h3 style={{ margin: 0, fontSize: "var(--font-size-xl)" }}>
-                                    {editingId ? "Edit Item" : "Create Item"}
-                                </h3>
+                                <h3 style={{ margin: 0, fontSize: "var(--font-size-xl)" }}>{editingId ? "Edit Item" : "Create Item"}</h3>
                             </div>
 
                             <form onSubmit={handleSubmit} className="quotation-form">
@@ -490,7 +713,14 @@ const ItemsPage: React.FC = () => {
                             }}
                         >
                             <p>No items yet.</p>
-                            <button className="btn btn-primary" onClick={startCreate}>
+                            <button
+                                className="btn btn-primary"
+                                onClick={() => {
+                                    setShowBulk(false);
+                                    startCreate();
+                                }}
+                                type="button"
+                            >
                                 Create your first item
                             </button>
                         </div>
@@ -605,16 +835,16 @@ const ItemsPage: React.FC = () => {
                                                     }}
                                                 >
                                                     <div style={{ display: "inline-flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                                        <button className="btn btn-outline" onClick={() => startEdit(it)} disabled={saving}>
-                                                            ✏️ Edit
+                                                        <button className="btn btn-outline" onClick={() => startEdit(it)} disabled={saving} type="button">
+                                                            Edit
                                                         </button>
 
-                                                        <button className="btn btn-outline" onClick={() => toggleActive(it)} disabled={saving}>
-                                                            {active ? "🚫 Disable" : "✅ Enable"}
+                                                        <button className="btn btn-outline" onClick={() => toggleActive(it)} disabled={saving} type="button">
+                                                            {active ? "Disable" : "Enable"}
                                                         </button>
 
-                                                        <button className="btn btn-outline" onClick={() => removeItem(it)} disabled={saving}>
-                                                            🗑️ Delete
+                                                        <button className="btn btn-outline" onClick={() => removeItem(it)} disabled={saving} type="button">
+                                                            Delete
                                                         </button>
                                                     </div>
                                                 </td>
@@ -646,8 +876,9 @@ const ItemsPage: React.FC = () => {
                                         onClick={() => setPage(1)}
                                         disabled={safePage === 1}
                                         title="First page"
+                                        type="button"
                                     >
-                                        ⏮
+                                        First
                                     </button>
 
                                     <button
@@ -655,8 +886,9 @@ const ItemsPage: React.FC = () => {
                                         onClick={() => setPage((p) => Math.max(1, p - 1))}
                                         disabled={safePage === 1}
                                         title="Previous page"
+                                        type="button"
                                     >
-                                        ← Prev
+                                        Prev
                                     </button>
 
                                     <div style={{ fontSize: 12 }}>
@@ -668,8 +900,9 @@ const ItemsPage: React.FC = () => {
                                         onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                                         disabled={safePage === totalPages}
                                         title="Next page"
+                                        type="button"
                                     >
-                                        Next →
+                                        Next
                                     </button>
 
                                     <button
@@ -677,8 +910,9 @@ const ItemsPage: React.FC = () => {
                                         onClick={() => setPage(totalPages)}
                                         disabled={safePage === totalPages}
                                         title="Last page"
+                                        type="button"
                                     >
-                                        ⏭
+                                        Last
                                     </button>
                                 </div>
                             </div>

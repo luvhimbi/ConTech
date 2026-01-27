@@ -15,7 +15,7 @@ import {
 } from "firebase/firestore";
 
 export type Client = {
-    id: string; // ✅ always present
+    id: string;
     name: string;
     email: string;
     emailLower: string;

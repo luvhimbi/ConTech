@@ -11,8 +11,7 @@ import {
     ChevronRight,
     BookOpen,
     Plus,
-    Receipt,
-    ScrollText
+    Receipt
 } from "lucide-react";
 
 type LinkStyleArgs = { isActive: boolean };
@@ -104,14 +103,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed }) => {
 
 
                 <Section title="Sales" isCollapsed={isCollapsed}>
-                    <NavLink to="/quotes" style={link} title="Quotes">
-                        <ScrollText style={iconSize} />
-                        {!isCollapsed && <span>Quotes</span>}
-                    </NavLink>
-                    <NavLink to="/invoices" style={link} title="Invoices">
-                        <Receipt style={iconSize} />
-                        {!isCollapsed && <span>Invoices</span>}
-                    </NavLink>
+
                     <NavLink to="/items" style={link} title="Items">
                         <FileText style={iconSize} />
                         {!isCollapsed && <span>Items</span>}

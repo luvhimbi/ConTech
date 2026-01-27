@@ -8,6 +8,10 @@ type UserProfileForDocs = {
     lastName: string;
     companyName: string;
     email: string;
+    branding?: {
+        logoUrl?: string | null;
+        logoPath?: string | null;
+    };
 };
 
 const money = (n: number) => `R${(Number(n) || 0).toFixed(2)}`;
@@ -82,7 +86,98 @@ const getTemplateStyles = (templateId: TemplateId): TemplateStyles => {
     }
 };
 
-export const generateInvoicePDF = (
+/** ---------------- LOGO HELPERS ---------------- **/
+
+type ImgType = "PNG" | "JPEG"|"JFIF";
+
+/**
+ * Convert an image URL into a dataURL so jsPDF can embed it.
+ * - Works for Firebase Storage download URLs if CORS allows it.
+ * - If CORS blocks it, use a base64 logoUrl instead (recommended).
+ */
+const urlToDataUrl = async (url: string): Promise<{ dataUrl: string; imgType: ImgType }> => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch logo: ${res.status}`);
+    const blob = await res.blob();
+
+    const mime = (blob.type || "").toLowerCase();
+    const imgType: ImgType = mime.includes("png") ? "PNG" : "JPEG";
+
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Failed to read logo file"));
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.readAsDataURL(blob);
+    });
+
+    return { dataUrl, imgType };
+};
+
+const isDataUrl = (v: string) => typeof v === "string" && v.startsWith("data:image/");
+
+const inferImgTypeFromDataUrl = (dataUrl: string): ImgType => {
+    const lower = dataUrl.toLowerCase();
+    if (lower.startsWith("data:image/png")) return "PNG";
+    return "JPEG";
+};
+
+/**
+ * Draw a logo inside a fixed box, maintaining aspect ratio.
+ * Returns true if drawn, false if not.
+ */
+const drawLogo = async (
+    doc: jsPDF,
+    logoUrlMaybe: string | null | undefined,
+    x: number,
+    y: number,
+    boxW: number,
+    boxH: number
+): Promise<boolean> => {
+    const logoUrl = (logoUrlMaybe || "").trim();
+    if (!logoUrl) return false;
+
+    try {
+        let dataUrl = logoUrl;
+        let imgType: ImgType;
+
+        if (isDataUrl(logoUrl)) {
+            imgType = inferImgTypeFromDataUrl(logoUrl);
+        } else {
+            const converted = await urlToDataUrl(logoUrl);
+            dataUrl = converted.dataUrl;
+            imgType = converted.imgType;
+        }
+
+        // Load image to get natural size for aspect ratio
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const i = new Image();
+            i.onload = () => resolve(i);
+            i.onerror = () => reject(new Error("Logo image failed to load"));
+            i.src = dataUrl;
+        });
+
+        const iw = img.naturalWidth || 1;
+        const ih = img.naturalHeight || 1;
+        const scale = Math.min(boxW / iw, boxH / ih);
+
+        const drawW = iw * scale;
+        const drawH = ih * scale;
+
+        const dx = x + (boxW - drawW) / 2;
+        const dy = y + (boxH - drawH) / 2;
+
+        doc.addImage(dataUrl, imgType, dx, dy, drawW, drawH);
+        return true;
+    } catch (e) {
+        // Don’t break invoice generation if logo fails
+        console.warn("Logo not added to PDF:", e);
+        return false;
+    }
+};
+
+/** ---------------- MAIN ---------------- **/
+
+export const generateInvoicePDF = async (
     invoice: Invoice,
     userProfile: UserProfileForDocs,
     projectName?: string
@@ -95,6 +190,8 @@ export const generateInvoicePDF = (
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const marginX = 14;
+
+    // Start Y a bit lower if we draw a logo
     let y = 14;
 
     // Billing block from invoice.billing (fallback to profile)
@@ -108,27 +205,46 @@ export const generateInvoicePDF = (
         nonEmpty(billing.contactName) ||
         `${trimOrEmpty(userProfile.firstName)} ${trimOrEmpty(userProfile.lastName)}`.trim();
 
+    // ===== Logo (top-left) =====
+    // Uses profile.branding.logoUrl by default.
+    // - If logoUrl is a Firebase download URL, CORS must allow fetch().
+    // - Best: store a base64 dataURL in logoUrl.
+    const logoBoxW = 28;
+    const logoBoxH = 28;
+    const logoX = marginX;
+    const logoY = 10;
+
+    const logoUrl = userProfile?.branding?.logoUrl || null;
+
+    const logoDrawn = await drawLogo(doc, logoUrl, logoX, logoY, logoBoxW, logoBoxH);
+
+    // If logo is drawn, shift left header text to the right of logo
+    const headerTextX = logoDrawn ? logoX + logoBoxW + 8 : marginX;
+
+    // Make sure y starts below the logo box if drawn
+    y = logoDrawn ? Math.max(y, logoY + logoBoxH - 2) : y;
+
     // ===== Header =====
     doc.setFont("helvetica", "bold");
     doc.setFontSize(styles.titleFontSize);
-    doc.text(companyName, marginX, y);
+    doc.text(companyName, headerTextX, y);
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
 
     y += 6;
-    if (contactName) doc.text(`Prepared by: ${contactName}`, marginX, y);
+    if (contactName) doc.text(`Prepared by: ${contactName}`, headerTextX, y);
 
     y += 5;
-    if (companyEmail) doc.text(`Email: ${companyEmail}`, marginX, y);
+    if (companyEmail) doc.text(`Email: ${companyEmail}`, headerTextX, y);
 
     y += 5;
-    if (companyPhone) doc.text(`Phone: ${companyPhone}`, marginX, y);
+    if (companyPhone) doc.text(`Phone: ${companyPhone}`, headerTextX, y);
 
     if (companyAddress) {
         y += 5;
         const addrLines = doc.splitTextToSize(companyAddress, 90);
-        doc.text(addrLines, marginX, y);
+        doc.text(addrLines, headerTextX, y);
         y += addrLines.length * 5;
     }
 
@@ -262,7 +378,9 @@ export const generateInvoicePDF = (
         cursorY = (doc as any).lastAutoTable?.finalY ?? cursorY + 18;
 
         // milestone subtotal
-        const msSubtotal = asNumber(ms.subtotal) || items.reduce((sum: number, it: any) => sum + (asNumber(it.total)), 0);
+        const msSubtotal =
+            asNumber(ms.subtotal) || items.reduce((sum: number, it: any) => sum + asNumber(it.total), 0);
+
         doc.setFont("helvetica", "bold");
         doc.setFontSize(10);
         doc.text("Milestone Total:", pageWidth - marginX - 75, cursorY + 8);

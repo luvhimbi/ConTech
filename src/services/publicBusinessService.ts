@@ -7,10 +7,7 @@ export type PublicBusiness = {
     slug?: string;
 };
 
-/**
- * PUBLIC: Resolves an identifier (slug OR uid) to a business profile.
- * This ensures /q/geeks4learning AND /q/USER_ID_123 both work.
- */
+
 export async function resolveBusinessBySlug(identifier: string): Promise<PublicBusiness | null> {
     if (!identifier) return null;
     const cleanId = identifier.toLowerCase().trim();
@@ -41,9 +38,7 @@ export async function resolveBusinessBySlug(identifier: string): Promise<PublicB
     return null;
 }
 
-/**
- * INTERNAL: Updates the user's slug index.
- */
+
 export async function updateBusinessSlug(
     uid: string,
     newSlug: string,
@@ -70,9 +65,7 @@ export async function updateBusinessSlug(
     await batch.commit();
 }
 
-/**
- * INITIALIZER: Syncs the index.
- */
+
 export async function syncPublicSlug(uid: string) {
     const userSnap = await getDoc(doc(db, "users", uid));
     if (userSnap.exists()) {

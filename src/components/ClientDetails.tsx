@@ -18,13 +18,12 @@ const ClientDetails: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
-    // ✅ Include core client fields + CRM fields
+    // ✅ ORIGINAL FIELDS — UNCHANGED
     const [edit, setEdit] = useState({
         name: "",
         email: "",
         address: "",
         phone: "",
-
         tags: "",
         notes: "",
         preferredContact: "",
@@ -37,25 +36,22 @@ const ClientDetails: React.FC = () => {
         try {
             setLoading(true);
 
-            // You can optimize later with getClientById(), but this is fine for now
             const list = await getUserClients(uid);
             const c = list.find((x) => x.id === clientId) || null;
             setClient(c);
 
-            // ✅ hydrate edit form
+            // hydrate edit form
             setEdit({
                 name: c?.name || "",
                 email: c?.email || "",
                 address: c?.address || "",
                 phone: c?.phone || "",
-
                 tags: (c?.tags || []).join(", "),
                 notes: c?.notes || "",
                 preferredContact: c?.preferredContact || "",
                 siteAccessRules: c?.siteAccessRules || "",
             });
 
-            // ✅ history: use emailLower (more consistent)
             const emailLower = (c?.emailLower || c?.email || "").toLowerCase().trim();
             if (emailLower) {
                 const h = await getClientHistory(uid, emailLower);
@@ -94,7 +90,6 @@ const ClientDetails: React.FC = () => {
     const handleSave = async () => {
         if (!user || !client?.id) return;
 
-        // Basic validation
         if (!edit.name.trim()) {
             showToast("Client name is required.", "error");
             return;
@@ -111,7 +106,6 @@ const ClientDetails: React.FC = () => {
                 email: edit.email.trim(),
                 address: edit.address.trim(),
                 phone: edit.phone.trim(),
-
                 tags: parsedTags,
                 notes: edit.notes,
                 preferredContact: edit.preferredContact,
@@ -170,10 +164,6 @@ const ClientDetails: React.FC = () => {
                             fontSize: "var(--font-size-sm)",
                             color: "var(--color-text-secondary)",
                             textDecoration: "none",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "var(--spacing-xs)",
-                            marginBottom: "var(--spacing-md)",
                         }}
                     >
                         ← Back to Clients
@@ -187,7 +177,8 @@ const ClientDetails: React.FC = () => {
 
                 <div className="profile-section">
                     <div className="quotation-form-grid">
-                        {/* ✅ LEFT: Client Info + CRM */}
+
+                        {/* LEFT — CLIENT INFO + CRM (UNCHANGED) */}
                         <div className="quotation-form-section">
                             <h4 className="quotation-section-title">Client Information</h4>
 
@@ -280,13 +271,13 @@ const ClientDetails: React.FC = () => {
                             </div>
 
                             <div className="profile-actions">
-                                <button className="btn btn-primary" type="button" onClick={handleSave} disabled={saving}>
+                                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                                     {saving ? "Saving..." : "Save Changes"}
                                 </button>
                             </div>
                         </div>
 
-                        {/* ✅ RIGHT: Client History */}
+                        {/* RIGHT — CLIENT HISTORY (ONLY CHANGE HERE) */}
                         <div className="quotation-form-section">
                             <h4 className="quotation-section-title">Client History</h4>
 
@@ -296,48 +287,54 @@ const ClientDetails: React.FC = () => {
                                 </p>
                             ) : (
                                 <div style={{ display: "flex", flexDirection: "column", gap: "var(--spacing-sm)" }}>
-                                    {history.map((h) => (
-                                        <div
-                                            key={`${h.type}-${h.id}`}
-                                            style={{
-                                                border: "1px solid var(--color-border)",
-                                                borderRadius: "var(--border-radius)",
-                                                padding: "var(--spacing-md)",
-                                                background: "var(--color-background)",
-                                            }}
-                                        >
-                                            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                                                <div>
-                                                    <div style={{ fontWeight: 600 }}>
-                                                        {h.type === "quotation" ? "Quotation" : "Invoice"}: {h.number}
+                                    {history.map((h) => {
+                                        const fallbackLink =
+                                            h.type === "quotation"
+                                                ? "/quotes/new"
+                                                : "/invoices/new";
+
+                                        return (
+                                            <div
+                                                key={`${h.type}-${h.id}`}
+                                                style={{
+                                                    border: "1px solid var(--color-border)",
+                                                    borderRadius: "var(--border-radius)",
+                                                    padding: "var(--spacing-md)",
+                                                    background: "var(--color-background)",
+                                                }}
+                                            >
+                                                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                                                    <div>
+                                                        <div style={{ fontWeight: 600 }}>
+                                                            {h.type === "quotation" ? "Quotation" : "Invoice"}: {h.number}
+                                                        </div>
+                                                        <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>
+                                                            {h.createdAt.toLocaleDateString()} • Status: {h.status}
+                                                        </div>
                                                     </div>
-                                                    <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>
-                                                        {h.createdAt.toLocaleDateString()} • Status: {h.status}
-                                                    </div>
+                                                    <div style={{ fontWeight: 700 }}>{money(h.total)}</div>
                                                 </div>
 
-                                                <div style={{ fontWeight: 700 }}>{money(h.total)}</div>
+                                                <div style={{ marginTop: 8 }}>
+                                                    {h.projectId ? (
+                                                        <Link className="btn btn-outline" to={`/projects/${h.projectId}`}>
+                                                            Open Project
+                                                        </Link>
+                                                    ) : (
+                                                        <Link className="btn btn-outline" to={fallbackLink}>
+                                                            Create {h.type === "quotation" ? "Quotation" : "Invoice"}
+                                                        </Link>
+                                                    )}
+                                                </div>
                                             </div>
-
-                                            <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                                <Link className="btn btn-outline" to={`/projects/${h.projectId}`}>
-                                                    Open Project
-                                                </Link>
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
-
-                            {/*<div style={{ marginTop: "var(--spacing-lg)" }}>*/}
-                            {/*    <Link className="btn btn-outline" to="/pipeline">*/}
-                            {/*        View Pipeline →*/}
-                            {/*    </Link>*/}
-                            {/*</div>*/}
                         </div>
+
                     </div>
                 </div>
-
             </div>
         </div>
     );

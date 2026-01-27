@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useCallback, useState } from "react"
 import { Link } from "react-router-dom";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth } from "../firebaseConfig";
-
+import { getUserProfile } from "../services/profileService";
 import {
     createStandaloneQuotation,
     getUserStandaloneQuotations,
@@ -24,6 +24,17 @@ import {
     Save,
     AlertTriangle,
 } from "lucide-react";
+import { FileDown } from "lucide-react";
+import { generateQuotationPDF } from "../utils/pdfGenerator";
+
+// type QuickAddForm = {
+//     name: string;
+//     description: string;
+//     unitPrice: string;
+//     unit: string;
+//     type: ItemType;
+//     isActive: boolean;
+// };
 
 const money = (n: any) => `R${(Number(n) || 0).toFixed(2)}`;
 
@@ -176,6 +187,79 @@ const StandaloneQuotationsPage: React.FC = () => {
             return { ...prev, [name]: value };
         });
     };
+
+    //handle the download
+    const handleDownloadPDF = async (q: Quotation) => {
+        if (!user) {
+            showToast("Please sign in to download a PDF.", "error");
+            return;
+        }
+
+        setSaving(true);
+
+        try {
+            // 1) Ensure quotation has items (some list fetches don't include items)
+            let fullQuotation: Quotation = q;
+
+            const hasItems = Array.isArray((q as any).items) && ((q as any).items?.length ?? 0) > 0;
+
+            if (!hasItems && q.id) {
+                const latest = await getUserStandaloneQuotations(user.uid);
+                const found = latest.find((x) => x.id === q.id);
+                if (found) fullQuotation = found;
+            }
+
+            const itemsCount = Array.isArray((fullQuotation as any).items)
+                ? (fullQuotation as any).items.length
+                : 0;
+
+            if (itemsCount === 0) {
+                showToast("This quotation has no items to export.", "error");
+                return;
+            }
+
+            // 2) Load company/profile (THIS is what your PDF generator needs)
+            let profile: any = null;
+            try {
+                profile = await getUserProfile(user.uid);
+            } catch {
+                profile = null;
+            }
+
+            // 3) Build a safe company object (never undefined, never missing companyName)
+            const company = {
+                companyName:
+                    profile?.companyName ||
+                    profile?.businessName ||
+                    profile?.name ||
+                    user.displayName ||
+                    "My Business",
+                email: profile?.email || user.email || "",
+                phone: profile?.phone || "",
+                address: profile?.address || "",
+                // add other fields your generator might use safely:
+                logoUrl: profile?.logoUrl || profile?.logo || "",
+                website: profile?.website || "",
+                vatNumber: profile?.vatNumber || "",
+            };
+
+            // 4) Generate PDF
+            await (generateQuotationPDF as any)({
+                quotation: fullQuotation,
+                company,
+                currencySymbol: "R",
+            });
+
+            showToast("PDF generated successfully!", "success");
+        } catch (err: any) {
+            console.error("PDF generation failed:", err);
+            showToast("Failed to generate PDF: " + (err?.message ?? "Unknown error"), "error");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+
 
     const handleItemChange = (index: number, field: keyof QuotationItem, value: string | number) => {
         setFormData((prev) => {
@@ -409,7 +493,10 @@ const StandaloneQuotationsPage: React.FC = () => {
                         </button>
                     ) : (
                         <div className="quotation-form-container">
-                            <div className="quotation-form-header" style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                            <div
+                                className="quotation-form-header"
+                                style={{ display: "flex", justifyContent: "space-between", gap: 10 }}
+                            >
                                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                     <h3 style={{ margin: 0, fontSize: "var(--font-size-xl)" }}>
                                         {editingId ? "Update Quotation" : "Create New Quotation"}
@@ -759,7 +846,7 @@ const StandaloneQuotationsPage: React.FC = () => {
                                             <th style={{ textAlign: "left", padding: "12px 10px" }}>Status</th>
                                             <th style={{ textAlign: "right", padding: "12px 10px" }}>Total</th>
                                             <th style={{ textAlign: "left", padding: "12px 10px" }}>Created</th>
-                                            <th style={{ textAlign: "right", padding: "12px 10px", width: 320 }}>Actions</th>
+                                            <th style={{ textAlign: "right", padding: "12px 10px", width: 340 }}>Actions</th>
                                         </tr>
                                         </thead>
 
@@ -774,9 +861,10 @@ const StandaloneQuotationsPage: React.FC = () => {
                                                 </td>
 
                                                 <td style={{ padding: "12px 10px" }}>
-                            <span className={`quotation-status quotation-status-${q.status}`}>
-                              {String(q.status || "draft").charAt(0).toUpperCase() + String(q.status || "draft").slice(1)}
-                            </span>
+                          <span className={`quotation-status quotation-status-${q.status}`}>
+                            {String(q.status || "draft").charAt(0).toUpperCase() +
+                                String(q.status || "draft").slice(1)}
+                          </span>
                                                 </td>
 
                                                 <td style={{ padding: "12px 10px", textAlign: "right", fontWeight: 800 }}>
@@ -788,7 +876,14 @@ const StandaloneQuotationsPage: React.FC = () => {
                                                 </td>
 
                                                 <td style={{ padding: "12px 10px", textAlign: "right" }}>
-                                                    <div style={{ display: "inline-flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                                    <div
+                                                        style={{
+                                                            display: "inline-flex",
+                                                            gap: 10,
+                                                            flexWrap: "wrap",
+                                                            justifyContent: "flex-end",
+                                                        }}
+                                                    >
                                                         <button
                                                             type="button"
                                                             className="btn btn-outline"
@@ -799,6 +894,18 @@ const StandaloneQuotationsPage: React.FC = () => {
                                                         >
                                                             <Pencil size={16} />
                                                             Edit
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-outline"
+                                                            onClick={() => handleDownloadPDF(q)}
+                                                            disabled={saving}
+                                                            style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                                            title="Download PDF"
+                                                        >
+                                                            <FileDown size={16} />
+                                                            PDF
                                                         </button>
 
                                                         <button
@@ -817,7 +924,6 @@ const StandaloneQuotationsPage: React.FC = () => {
                                             </tr>
                                         ))}
                                         </tbody>
-
                                     </table>
                                 </div>
                             </div>
@@ -835,6 +941,7 @@ const StandaloneQuotationsPage: React.FC = () => {
             </div>
         </div>
     );
+
 };
 
 export default StandaloneQuotationsPage;

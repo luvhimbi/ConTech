@@ -1,6 +1,7 @@
 // src/services/profileService.ts
-import { db } from "../firebaseConfig";
+import { db, storage } from "../firebaseConfig";
 import { doc, getDoc, updateDoc, Timestamp } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 export type Branding = {
     logoUrl?: string | null;
@@ -70,15 +71,10 @@ export const getUserProfile = async (uid: string): Promise<UserProfile | null> =
     }
 };
 
-export const updateUserProfile = async (
-    uid: string,
-    updates: any
-): Promise<void> => {
+export const updateUserProfile = async (uid: string, updates: any): Promise<void> => {
     try {
         const userRef = doc(db, "users", uid);
 
-        // Use a flat payload to update fields.
-        // This ensures email and createdAt are not affected or removed.
         const payload: any = stripUndefined({
             firstName: updates.firstName,
             lastName: updates.lastName,
@@ -95,5 +91,70 @@ export const updateUserProfile = async (
         await updateDoc(userRef, payload);
     } catch (error: any) {
         throw new Error("Failed to update user profile: " + (error?.message ?? "Unknown error"));
+    }
+};
+
+
+export const uploadBrandingLogo = async (
+    uid: string,
+    file: File
+): Promise<{ logoUrl: string; logoPath: string }> => {
+    try {
+        // Fixed path (recommended)
+        const logoPath = `users/${uid}/branding/logo.png`;
+        const logoRef = ref(storage, logoPath);
+
+        // Upload with contentType so rules/contentType checks behave consistently
+        await uploadBytes(logoRef, file, {
+            contentType: file.type || "image/png",
+        });
+
+        const logoUrl = await getDownloadURL(logoRef);
+
+        await updateUserProfile(uid, {
+            branding: {
+                logoUrl,
+                logoPath,
+            },
+        });
+
+        return { logoUrl, logoPath };
+    } catch (error: any) {
+        throw new Error("Failed to upload branding logo: " + (error?.message ?? "Unknown error"));
+    }
+};
+
+/**
+ * ✅ Remove branding logo safely:
+ * - If file does NOT exist => treat as success
+ * - Always clear Firestore branding fields so UI stops referencing old paths
+ */
+export const removeBrandingLogo = async (
+    uid: string,
+    logoPath?: string | null
+): Promise<void> => {
+    const pathToDelete = logoPath || `users/${uid}/branding/logo.png`;
+
+    try {
+        const logoRef = ref(storage, pathToDelete);
+
+        try {
+            await deleteObject(logoRef);
+        } catch (err: any) {
+            // If it's already gone, that's fine.
+            if (err?.code !== "storage/object-not-found") {
+                throw err;
+            }
+        }
+
+        // Always clear branding fields in Firestore
+        await updateUserProfile(uid, {
+            branding: {
+                logoUrl: null,
+                logoPath: null,
+            },
+        });
+    } catch (error: any) {
+        throw new Error("Failed to remove branding logo: " + (error?.message ?? "Unknown error"));
     }
 };

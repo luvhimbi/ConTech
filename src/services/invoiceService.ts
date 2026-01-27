@@ -64,7 +64,11 @@ export interface InvoiceMilestone {
 export interface Invoice {
     items: never[];
     id?: string;
+
+    // NOTE: projectId is still part of the interface because your existing project-based
+    // invoices use it. For standalone invoices we will set projectId to "standalone".
     projectId: string;
+
     userId: string;
     invoiceNumber: string;
 
@@ -91,6 +95,9 @@ export interface Invoice {
     dueDate: Date;
     createdAt: Date;
     updatedAt: Date;
+
+    // ✅ OPTIONAL: helpful flags for standalone invoices
+    isStandalone?: boolean;
 }
 
 type CreateInvoiceInput = {
@@ -222,10 +229,7 @@ const normalizeMilestones = (milestones: CreateInvoiceInput["milestones"]) => {
     return normalized;
 };
 
-const calcInvoiceTotalsFromMilestones = (
-    milestones: Array<{ subtotal: number }>,
-    taxRate: number
-) => {
+const calcInvoiceTotalsFromMilestones = (milestones: Array<{ subtotal: number }>, taxRate: number) => {
     const subtotal = (milestones || []).reduce((sum, m) => sum + (Number(m.subtotal) || 0), 0);
     const rate = Number(taxRate) || 0;
     const taxAmount = (subtotal * rate) / 100;
@@ -247,6 +251,76 @@ const buildDepositDoc = (totalAmount: number, input?: CreateInvoiceInput["deposi
     };
 };
 
+// ✅ Shared mapper so project + standalone reads use the same conversion logic
+const mapInvoiceDocToModel = (docId: string, data: DocumentData): Invoice => {
+    const milestones: InvoiceMilestone[] = (data.milestones || []).map((m: any) => ({
+        title: m.title || "",
+        description: m.description || "",
+        dueDate: m.dueDate?.toDate ? m.dueDate.toDate() : undefined,
+        status: (m.status as MilestoneStatus) || "not_started",
+        items: (m.items || []).map((it: any) => ({
+            description: it.description || "",
+            quantity: Number(it.quantity) || 0,
+            unitPrice: Number(it.unitPrice) || 0,
+            total: Number(it.total) || 0,
+        })),
+        subtotal: Number(m.subtotal) || 0,
+    }));
+
+    const projectId = data.projectId || "standalone";
+
+    return {
+        id: docId,
+        projectId,
+        userId: data.userId,
+        invoiceNumber: data.invoiceNumber,
+        templateId: normalizeTemplateId(data.templateId),
+
+        clientName: data.clientName || "",
+        clientEmail: data.clientEmail || "",
+        clientEmailLower: data.clientEmailLower || "",
+        clientAddress: data.clientAddress || "",
+        clientPhone: data.clientPhone || "",
+
+        billing: {
+            businessName: data.billing?.businessName || "Company",
+            contactName: data.billing?.contactName || "",
+            email: data.billing?.email || "",
+            phone: data.billing?.phone || "",
+            address: data.billing?.address || "",
+            bankName: data.billing?.bankName || "",
+            accountName: data.billing?.accountName || "",
+            accountNumber: data.billing?.accountNumber || "",
+            branchCode: data.billing?.branchCode || "",
+            accountType: data.billing?.accountType || "",
+            paymentReferenceNote: data.billing?.paymentReferenceNote || "",
+        },
+
+        milestones,
+
+        subtotal: Number(data.subtotal) || 0,
+        taxRate: Number(data.taxRate) || 0,
+        taxAmount: Number(data.taxAmount) || 0,
+        totalAmount: Number(data.totalAmount) || 0,
+
+        deposit: {
+            enabled: Boolean(data.deposit?.enabled),
+            ratePercent: Number(data.deposit?.ratePercent) || 0,
+            amount: Number(data.deposit?.amount) || 0,
+            dueDate: data.deposit?.dueDate?.toDate ? data.deposit.dueDate.toDate() : undefined,
+            notes: (data.deposit?.notes || "").trim() || "",
+        },
+
+        status: data.status as InvoiceStatus,
+        dueDate: data.dueDate?.toDate ? data.dueDate.toDate() : new Date(),
+        createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(),
+        updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(),
+
+        isStandalone: Boolean(data.isStandalone) || projectId === "standalone",
+        items: [] as never[],
+    };
+};
+
 // ---------------- CREATE ----------------
 export const createInvoice = async (
     projectId: string,
@@ -264,10 +338,7 @@ export const createInvoice = async (
             throw new Error("Please add at least 1 milestone with at least 1 item.");
         }
 
-        const { subtotal, taxAmount, totalAmount } = calcInvoiceTotalsFromMilestones(
-            milestonesDoc,
-            taxRate
-        );
+        const { subtotal, taxAmount, totalAmount } = calcInvoiceTotalsFromMilestones(milestonesDoc, taxRate);
 
         const dueDate = toDateSafe(input.dueDate) ?? new Date();
         const billing = buildBillingDoc(input.billing);
@@ -317,68 +388,7 @@ export const getProjectInvoices = async (projectId: string): Promise<Invoice[]> 
 
         return snap.docs.map((d) => {
             const data = d.data() as DocumentData;
-
-            const milestones: InvoiceMilestone[] = (data.milestones || []).map((m: any) => ({
-                title: m.title || "",
-                description: m.description || "",
-                dueDate: m.dueDate?.toDate ? m.dueDate.toDate() : undefined,
-                status: (m.status as MilestoneStatus) || "not_started",
-                items: (m.items || []).map((it: any) => ({
-                    description: it.description || "",
-                    quantity: Number(it.quantity) || 0,
-                    unitPrice: Number(it.unitPrice) || 0,
-                    total: Number(it.total) || 0,
-                })),
-                subtotal: Number(m.subtotal) || 0,
-            }));
-
-            return {
-                id: d.id,
-                projectId: data.projectId,
-                userId: data.userId,
-                invoiceNumber: data.invoiceNumber,
-                templateId: normalizeTemplateId(data.templateId),
-
-                clientName: data.clientName || "",
-                clientEmail: data.clientEmail || "",
-                clientEmailLower: data.clientEmailLower || "",
-                clientAddress: data.clientAddress || "",
-                clientPhone: data.clientPhone || "",
-
-                billing: {
-                    businessName: data.billing?.businessName || "Company",
-                    contactName: data.billing?.contactName || "",
-                    email: data.billing?.email || "",
-                    phone: data.billing?.phone || "",
-                    address: data.billing?.address || "",
-                    bankName: data.billing?.bankName || "",
-                    accountName: data.billing?.accountName || "",
-                    accountNumber: data.billing?.accountNumber || "",
-                    branchCode: data.billing?.branchCode || "",
-                    accountType: data.billing?.accountType || "",
-                    paymentReferenceNote: data.billing?.paymentReferenceNote || "",
-                },
-
-                milestones,
-
-                subtotal: Number(data.subtotal) || 0,
-                taxRate: Number(data.taxRate) || 0,
-                taxAmount: Number(data.taxAmount) || 0,
-                totalAmount: Number(data.totalAmount) || 0,
-
-                deposit: {
-                    enabled: Boolean(data.deposit?.enabled),
-                    ratePercent: Number(data.deposit?.ratePercent) || 0,
-                    amount: Number(data.deposit?.amount) || 0,
-                    dueDate: data.deposit?.dueDate?.toDate ? data.deposit.dueDate.toDate() : undefined,
-                    notes: (data.deposit?.notes || "").trim() || "",
-                },
-
-                status: data.status as InvoiceStatus,
-                dueDate: data.dueDate?.toDate ? data.dueDate.toDate() : new Date(),
-                createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(),
-                updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(),
-            } as Invoice;
+            return mapInvoiceDocToModel(d.id, data);
         });
     } catch (error: any) {
         throw new Error("Failed to fetch invoices: " + (error?.message ?? "Unknown error"));
@@ -417,8 +427,7 @@ export const updateInvoice = async (
         if (input.billing !== undefined) payload.billing = buildBillingDoc(input.billing);
 
         // ✅ Recompute totals if milestones or taxRate or deposit changed
-        const shouldRecalc =
-            input.milestones !== undefined || input.taxRate !== undefined || input.deposit !== undefined;
+        const shouldRecalc = input.milestones !== undefined || input.taxRate !== undefined || input.deposit !== undefined;
 
         if (input.milestones !== undefined) {
             const milestonesDoc = normalizeMilestones(input.milestones || []);
@@ -456,5 +465,161 @@ export const deleteInvoice = async (projectId: string, invoiceId: string): Promi
         await deleteDoc(doc(db, "projects", projectId, "invoices", invoiceId));
     } catch (error: any) {
         throw new Error("Failed to delete invoice: " + (error?.message ?? "Unknown error"));
+    }
+};
+
+
+type CreateStandaloneInvoiceInput = CreateInvoiceInput;
+
+type UpdateStandaloneInvoiceInput = UpdateInvoiceInput;
+
+// ---------------- CREATE (Standalone) ----------------
+export const createStandaloneInvoice = async (
+    userId: string,
+    input: CreateStandaloneInvoiceInput
+): Promise<string> => {
+    try {
+        const invoiceNumber = `INV-${Date.now()}`;
+        const templateId = normalizeTemplateId(input.templateId);
+
+        const taxRate = Number(input.taxRate) || 0;
+
+        const milestonesDoc = normalizeMilestones(input.milestones || []);
+        if (milestonesDoc.length === 0) {
+            throw new Error("Please add at least 1 milestone with at least 1 item.");
+        }
+
+        const { subtotal, taxAmount, totalAmount } = calcInvoiceTotalsFromMilestones(milestonesDoc, taxRate);
+
+        const dueDate = toDateSafe(input.dueDate) ?? new Date();
+        const billing = buildBillingDoc(input.billing);
+        const deposit = buildDepositDoc(totalAmount, input.deposit);
+
+        const payload = {
+            // keep projectId present for compatibility, but mark as standalone
+            projectId: "standalone",
+            isStandalone: true,
+
+            userId,
+            invoiceNumber,
+            templateId,
+
+            clientName: normalizeString(input.clientName),
+            clientEmail: normalizeString(input.clientEmail),
+            clientEmailLower: (input.clientEmail || "").trim().toLowerCase(),
+            clientAddress: normalizeString(input.clientAddress),
+            clientPhone: normalizeString(input.clientPhone),
+
+            billing,
+
+            milestones: milestonesDoc,
+
+            subtotal,
+            taxRate,
+            taxAmount,
+            totalAmount,
+
+            deposit,
+
+            status: input.status,
+            dueDate: Timestamp.fromDate(dueDate),
+            createdAt: Timestamp.now(),
+            updatedAt: Timestamp.now(),
+        };
+
+        const ref = await addDoc(collection(db, "users", userId, "invoices"), payload);
+        return ref.id;
+    } catch (error: any) {
+        throw new Error("Failed to create standalone invoice: " + (error?.message ?? "Unknown error"));
+    }
+};
+
+// ---------------- READ (Standalone) ----------------
+export const getUserStandaloneInvoices = async (userId: string): Promise<Invoice[]> => {
+    try {
+        const q = query(collection(db, "users", userId, "invoices"), orderBy("createdAt", "desc"));
+        const snap = await getDocs(q);
+
+        return snap.docs.map((d) => {
+            const data = d.data() as DocumentData;
+            return mapInvoiceDocToModel(d.id, data);
+        });
+    } catch (error: any) {
+        throw new Error("Failed to fetch standalone invoices: " + (error?.message ?? "Unknown error"));
+    }
+};
+
+// ---------------- UPDATE (Standalone) ----------------
+export const updateStandaloneInvoice = async (
+    userId: string,
+    invoiceId: string,
+    input: UpdateStandaloneInvoiceInput
+): Promise<void> => {
+    try {
+        const ref = doc(db, "users", userId, "invoices", invoiceId);
+        const payload: any = { updatedAt: Timestamp.now() };
+
+        if (input.templateId !== undefined) payload.templateId = normalizeTemplateId(input.templateId);
+
+        if (input.clientName !== undefined) payload.clientName = normalizeString(input.clientName);
+
+        if (input.clientEmail !== undefined) {
+            payload.clientEmail = normalizeString(input.clientEmail);
+            payload.clientEmailLower = (input.clientEmail || "").trim().toLowerCase();
+        }
+
+        if (input.clientAddress !== undefined) payload.clientAddress = normalizeString(input.clientAddress);
+        if (input.clientPhone !== undefined) payload.clientPhone = normalizeString(input.clientPhone);
+
+        if (input.status !== undefined) payload.status = input.status;
+
+        if (input.dueDate !== undefined) {
+            const dd = toDateSafe(input.dueDate);
+            payload.dueDate = dd ? Timestamp.fromDate(dd) : Timestamp.fromDate(new Date());
+        }
+
+        if (input.billing !== undefined) payload.billing = buildBillingDoc(input.billing);
+
+        // ✅ Recompute totals if milestones or taxRate or deposit changed
+        const shouldRecalc = input.milestones !== undefined || input.taxRate !== undefined || input.deposit !== undefined;
+
+        if (input.milestones !== undefined) {
+            const milestonesDoc = normalizeMilestones(input.milestones || []);
+            if (milestonesDoc.length === 0) {
+                throw new Error("Please add at least 1 milestone with at least 1 item.");
+            }
+            payload.milestones = milestonesDoc;
+
+            const taxRate = Number(input.taxRate ?? 0) || 0;
+            const { subtotal, taxAmount, totalAmount } = calcInvoiceTotalsFromMilestones(milestonesDoc, taxRate);
+
+            payload.subtotal = subtotal;
+            payload.taxRate = taxRate;
+            payload.taxAmount = taxAmount;
+            payload.totalAmount = totalAmount;
+
+            if (input.deposit !== undefined) {
+                payload.deposit = buildDepositDoc(totalAmount, input.deposit);
+            }
+        } else if (shouldRecalc) {
+            throw new Error("To update tax/deposit you must include milestones in the payload.");
+        }
+
+        // keep these flags consistent
+        payload.projectId = "standalone";
+        payload.isStandalone = true;
+
+        await updateDoc(ref, payload);
+    } catch (error: any) {
+        throw new Error("Failed to update standalone invoice: " + (error?.message ?? "Unknown error"));
+    }
+};
+
+// ---------------- DELETE (Standalone) ----------------
+export const deleteStandaloneInvoice = async (userId: string, invoiceId: string): Promise<void> => {
+    try {
+        await deleteDoc(doc(db, "users", userId, "invoices", invoiceId));
+    } catch (error: any) {
+        throw new Error("Failed to delete standalone invoice: " + (error?.message ?? "Unknown error"));
     }
 };

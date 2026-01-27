@@ -11,7 +11,6 @@ import Profile from "./components/Profile";
 import Projects from "./components/Projects";
 import ProjectDetail from "./components/ProjectDetail";
 import ProjectQuotations from "./components/ProjectQuotations";
-import Invoices from "./components/Invoices";
 import Clients from "./components/Clients";
 import ClientDetails from "./components/ClientDetails";
 
@@ -37,6 +36,9 @@ import { useNotifications } from "./hooks/useNotifications";
 import Notifications from "./components/Notifications.tsx";
 import ItemsPage from "./components/ItemsPage.tsx";
 import StandaloneQuotationsPage from "./components/StandaloneQuotationsPage.tsx";
+import StandaloneInvoices from "./components/StandaloneInvoices.tsx";
+import Invoices from "./components/Invoices.tsx";
+import ForgotPassword from "./components/ForgotPassword.tsx";
 
 
 const App: React.FC = () => {
@@ -64,6 +66,7 @@ const App: React.FC = () => {
                                 {/* AUTH ROUTES (Also typically share the Navbar) */}
                                 <Route path="/login" element={<Login />} />
                                 <Route path="/register" element={<Register />} />
+                                <Route path="/forgot-password" element={<ForgotPassword />} />
                             </Route>
 
                             {/* Public Quote Request (Standalone) */}
@@ -86,8 +89,10 @@ const App: React.FC = () => {
                                 <Route path="/quote-requests/:id" element={<QuoteRequestDetail />} />
                                 <Route path="/notifications" element={<Notifications />} />
                                 <Route path="/quotes/new" element={<StandaloneQuotationsPage />} />
+                                <Route path="/invoices/new" element={<StandaloneInvoices/>} />
                                 <Route path="/docs" element={<DocsLayout />} />
                                 <Route path="/items" element={<ItemsPage />} />
+
                                 {/* fallback */}
                                 <Route path="*" element={<Navigate to="/" replace />} />
                             </Route>

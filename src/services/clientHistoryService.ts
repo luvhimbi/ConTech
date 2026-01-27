@@ -29,12 +29,6 @@ const toDateSafe = (v: any) => {
     }
 };
 
-/**
- * Fetches history for a client across all projects using collectionGroup.
- * Note: You must create a Composite Index in Firebase Console for:
- * 1. Collection Group 'invoices' (userId: ASC, clientEmailLower: ASC, createdAt: DESC)
- * 2. Collection Group 'quotations' (userId: ASC, clientEmailLower: ASC, createdAt: DESC)
- */
 export const getClientHistory = async (
     userId: string,
     clientEmail: string

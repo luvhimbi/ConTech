@@ -5,14 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
+    "preview": "vite preview",
+
     "lint": "eslint .",
-    "preview": "vite preview"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@sentry/react": "^10.36.0",
     "@userback/widget": "^0.3.12",
     "bootstrap": "^5.3.8",
     "firebase": "^12.7.0",

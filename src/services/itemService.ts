@@ -13,7 +13,7 @@ import {
     orderBy,
     where,
     type DocumentData,
-    Timestamp,
+    Timestamp, writeBatch,
 } from "firebase/firestore";
 
 export type ItemType = "product" | "service";
@@ -38,6 +38,47 @@ type CatalogItemDoc = Omit<CatalogItem, "id" | "createdAt" | "updatedAt"> & {
     createdAt: Timestamp | ReturnType<typeof serverTimestamp>;
     updatedAt: Timestamp | ReturnType<typeof serverTimestamp>;
 };
+export async function bulkCreateCatalogItems(
+    uid: string,
+    items: Array<{
+        name: string;
+        description?: string;
+        unitPrice: number;
+        unit?: string;
+        type: ItemType;
+        isActive: boolean;
+    }>
+): Promise<void> {
+    if (!uid) throw new Error("Missing user id");
+    if (!Array.isArray(items) || items.length === 0) return;
+
+    // Optional safety limit (Firestore batch limit is 500 writes)
+    if (items.length > 450) {
+        throw new Error("Too many items at once. Please upload in smaller batches (max 450).");
+    }
+
+    const batch = writeBatch(db);
+    const itemsCol = collection(db, "users", uid, "items");
+
+    const now = serverTimestamp();
+
+    for (const it of items) {
+        const ref = doc(itemsCol); // auto id
+        batch.set(ref, {
+            userId: uid,
+            name: it.name,
+            description: it.description ?? null,
+            unitPrice: Number(it.unitPrice) || 0,
+            unit: it.unit ?? null,
+            type: it.type,
+            isActive: Boolean(it.isActive),
+            createdAt: now,
+            updatedAt: now,
+        });
+    }
+
+    await batch.commit();
+}
 
 function toDateSafe(v: any): Date {
     if (!v) return new Date(0);

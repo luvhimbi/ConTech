@@ -1,23 +1,59 @@
 // src/utils/pdfGenerator.ts
 import jsPDF from "jspdf";
-import type { Quotation } from "../services/quotationService";
+import type { Quotation, QuotationStatus } from "../services/quotationService";
 
-/**
- * Improved quotation PDF template:
- * - Cleaner header with brand block + meta cards
- * - Proper “Bill To” block + From block
- * - Zebra items table + auto page breaks
- * - Totals in a subtle card
- * - Notes/terms block
- * - Footer with page numbers
- *
- * Works without extra plugins (no autoTable).
- */
-export const generateQuotationPDF = (
+export type QuotationPdfProfile = {
+    firstName?: string;
+    lastName?: string;
+    companyName?: string;
+    email?: string;
+};
+
+export type QuotationPdfOptions = {
+    quotation: Quotation;
+    company?: QuotationPdfProfile; // can be minimal for standalone
+    userProfile?: QuotationPdfProfile; // alias if you prefer passing userProfile
+    projectName?: string; // optional
+    currencySymbol?: string; // default "R"
+};
+
+// ---- overloads (so your existing calls still work) ----
+export function generateQuotationPDF(
     quotation: Quotation,
     userProfile: { firstName: string; lastName: string; companyName: string; email: string },
     projectName?: string
-) => {
+): void;
+
+export function generateQuotationPDF(options: QuotationPdfOptions): void;
+
+// ---- implementation ----
+export function generateQuotationPDF(
+    arg1: Quotation | QuotationPdfOptions,
+    arg2?: { firstName: string; lastName: string; companyName: string; email: string },
+    arg3?: string
+) {
+    // Normalize inputs to one shape
+    const quotation: Quotation =
+        (arg1 as any)?.quotation ? (arg1 as QuotationPdfOptions).quotation : (arg1 as Quotation);
+
+    const projectName: string | undefined =
+        (arg1 as any)?.quotation ? (arg1 as QuotationPdfOptions).projectName : arg3;
+
+    const currencySymbol: string =
+        (arg1 as any)?.quotation ? (arg1 as QuotationPdfOptions).currencySymbol || "R" : "R";
+
+    const profileFromOptions =
+        (arg1 as any)?.quotation
+            ? (arg1 as QuotationPdfOptions).company || (arg1 as QuotationPdfOptions).userProfile
+            : arg2;
+
+    const userProfile: Required<QuotationPdfProfile> = {
+        firstName: String(profileFromOptions?.firstName ?? "").trim(),
+        lastName: String(profileFromOptions?.lastName ?? "").trim(),
+        companyName: String(profileFromOptions?.companyName ?? "Your Company").trim() || "Your Company",
+        email: String(profileFromOptions?.email ?? "").trim(),
+    };
+
     const doc = new jsPDF({ unit: "mm", format: "a4" });
 
     // ---------- Page + layout ----------
@@ -28,23 +64,38 @@ export const generateQuotationPDF = (
     const contentW = pageW - margin * 2;
 
     // ---------- Theme ----------
-    // Slightly more modern, neutral palette
-    const C = {
-        primary: [33, 150, 243] as const, // blue
-        primaryDark: [25, 118, 210] as const,
-        text: [32, 33, 36] as const,
-        muted: [95, 99, 104] as const,
-        border: [218, 220, 224] as const,
-        soft: [245, 247, 250] as const,
-        zebra: [250, 251, 252] as const,
-        white: [255, 255, 255] as const,
-        danger: [220, 53, 69] as const,
-        success: [40, 167, 69] as const,
-        warning: [255, 193, 7] as const,
+    // ✅ IMPORTANT: Use a shared RGB tuple type so assignments are compatible.
+    type RGB = readonly [number, number, number];
+
+    const C: Record<
+        | "primary"
+        | "primaryDark"
+        | "text"
+        | "muted"
+        | "border"
+        | "soft"
+        | "zebra"
+        | "white"
+        | "danger"
+        | "success"
+        | "warning",
+        RGB
+    > = {
+        primary: [33, 150, 243],
+        primaryDark: [25, 118, 210],
+        text: [32, 33, 36],
+        muted: [95, 99, 104],
+        border: [218, 220, 224],
+        soft: [245, 247, 250],
+        zebra: [250, 251, 252],
+        white: [255, 255, 255],
+        danger: [220, 53, 69],
+        success: [40, 167, 69],
+        warning: [255, 193, 7],
     };
 
     // ---------- Helpers ----------
-    const fmtMoney = (n: any) => `R${(Number(n) || 0).toFixed(2)}`;
+    const fmtMoney = (n: any) => `${currencySymbol}${(Number(n) || 0).toFixed(2)}`;
     const safeText = (s: any) => String(s ?? "").trim();
     const formatDate = (value: any) => {
         try {
@@ -58,14 +109,20 @@ export const generateQuotationPDF = (
         }
     };
 
-    const setTextColor = (rgb: readonly [number, number, number]) => doc.setTextColor(rgb[0], rgb[1], rgb[2]);
-    const setFillColor = (rgb: readonly [number, number, number]) => doc.setFillColor(rgb[0], rgb[1], rgb[2]);
-    const setDrawColor = (rgb: readonly [number, number, number]) => doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+    const setTextColor = (rgb: RGB) => doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+    const setFillColor = (rgb: RGB) => doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+    const setDrawColor = (rgb: RGB) => doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
 
     const text = (str: string, x: number, y: number, opt?: any) => doc.text(str, x, y, opt);
 
-    const roundedRect = (x: number, y: number, w: number, h: number, r = 2.5, style: "S" | "F" | "FD" = "S") => {
-        // jsPDF supports roundedRect in newer versions; fallback to rect if unavailable
+    const roundedRect = (
+        x: number,
+        y: number,
+        w: number,
+        h: number,
+        r = 2.5,
+        style: "S" | "F" | "FD" = "S"
+    ) => {
         // @ts-ignore
         if (typeof doc.roundedRect === "function") {
             // @ts-ignore
@@ -73,12 +130,6 @@ export const generateQuotationPDF = (
         } else {
             doc.rect(x, y, w, h, style);
         }
-    };
-
-    const hr = (y: number) => {
-        setDrawColor(C.border);
-        doc.setLineWidth(0.3);
-        doc.line(margin, y, pageW - margin, y);
     };
 
     const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
@@ -93,27 +144,33 @@ export const generateQuotationPDF = (
         return newY;
     };
 
-    const drawBadge = (label: string, x: number, y: number, variant: "draft" | "sent" | "accepted" | "rejected") => {
+    const drawBadge = (
+        label: string,
+        x: number,
+        y: number,
+        variant: "draft" | "sent" | "accepted" | "rejected"
+    ) => {
         const padX = 3.2;
-        const padY = 2.1;
         doc.setFont("helvetica", "bold");
         doc.setFontSize(8);
 
         const w = doc.getTextWidth(label) + padX * 2;
         const h = 6.4;
 
-        let bg = C.soft;
-        let fg = C.muted;
+        // ✅ Explicitly widen bg/fg to RGB, so reassignments are allowed.
+        let bg: RGB = C.soft;
+        let fg: RGB = C.muted;
+
         if (variant === "accepted") {
-            bg = [233, 245, 236] as const;
+            bg = [233, 245, 236];
             fg = C.success;
         }
         if (variant === "rejected") {
-            bg = [252, 237, 239] as const;
+            bg = [252, 237, 239];
             fg = C.danger;
         }
         if (variant === "sent") {
-            bg = [232, 244, 253] as const;
+            bg = [232, 244, 253];
             fg = C.primaryDark;
         }
 
@@ -124,15 +181,18 @@ export const generateQuotationPDF = (
         setTextColor(fg);
         text(label, x + padX, y, { baseline: "alphabetic" });
 
-        // reset
         setDrawColor(C.border);
         setTextColor(C.text);
         doc.setFont("helvetica", "normal");
     };
 
     // ---------- Compute totals if missing ----------
-    const items = Array.isArray(quotation.items) ? quotation.items : [];
-    const computedSubtotal = items.reduce((sum, it) => sum + (Number(it.total) || (Number(it.unitPrice) || 0) * (Number(it.quantity) || 0)), 0);
+    const items = Array.isArray((quotation as any).items) ? (quotation as any).items : [];
+    const computedSubtotal = items.reduce(
+        (sum: number, it: any) =>
+            sum + (Number(it.total) || (Number(it.unitPrice) || 0) * (Number(it.quantity) || 0)),
+        0
+    );
     const taxRate = Number((quotation as any).taxRate ?? 0) || 0;
     const computedTax = computedSubtotal * (taxRate / 100);
     const computedTotal = computedSubtotal + computedTax;
@@ -145,29 +205,24 @@ export const generateQuotationPDF = (
 
     // ---------- Header + meta ----------
     const drawHeader = () => {
-        // Top band
         setFillColor(C.primary);
         doc.rect(0, 0, pageW, 34, "F");
 
-        // Title
         doc.setFont("helvetica", "bold");
         doc.setFontSize(18);
         setTextColor(C.white);
         text("Quotation", margin, 20);
 
-        // Number on right
         doc.setFont("helvetica", "normal");
         doc.setFontSize(10);
         setTextColor([235, 241, 255]);
         text(`#${quotationNo}`, pageW - margin, 20, { align: "right" });
 
-        // Small brand line (company)
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
         setTextColor(C.white);
         text(safeText(userProfile.companyName || "Your Company"), margin, 29);
 
-        // Content start
         return 44;
     };
 
@@ -186,13 +241,11 @@ export const generateQuotationPDF = (
             doc.setLineWidth(0.3);
             roundedRect(x, y, cardW, cardH, 2.5, "F");
 
-            // Title
             doc.setFont("helvetica", "bold");
             doc.setFontSize(8);
             setTextColor(C.muted);
             text(title.toUpperCase(), x + 6, y + 7);
 
-            // Value
             doc.setFont("helvetica", "bold");
             doc.setFontSize(10);
             setTextColor(C.text);
@@ -210,7 +263,6 @@ export const generateQuotationPDF = (
         makeCard(x2, "Valid until", validUntil);
         makeCard(x3, "Status", status.charAt(0).toUpperCase() + status.slice(1));
 
-        // Badge on top of status card
         const badgeLabel = status.charAt(0).toUpperCase() + status.slice(1);
         drawBadge(badgeLabel, x3 + cardW - doc.getTextWidth(badgeLabel) - 14, y + 8.6, status);
 
@@ -258,6 +310,8 @@ export const generateQuotationPDF = (
         const fullName = `${safeText(userProfile.firstName)} ${safeText(userProfile.lastName)}`.trim();
         if (fullName) fromLines.push(fullName);
         if (userProfile.email) fromLines.push(safeText(userProfile.email));
+
+        // ✅ Standalone support: only include project line when projectName is provided
         if (projectName) fromLines.push(`Project: ${safeText(projectName)}`);
 
         const toLines: string[] = [];
@@ -273,6 +327,15 @@ export const generateQuotationPDF = (
     };
 
     // ---------- Table ----------
+    const getTableCols = () => {
+        const totalX = margin + contentW;
+        const unitX = totalX - 30;
+        const qtyX = unitX - 20;
+        const descX = margin + 2;
+        const descW = qtyX - descX - 6;
+        return { descX, descW, qtyX, unitX, totalX };
+    };
+
     const drawItemsTableHeader = (y: number) => {
         const headerH = 9;
         setFillColor(C.soft);
@@ -293,20 +356,6 @@ export const generateQuotationPDF = (
         return y + headerH;
     };
 
-    const getTableCols = () => {
-        // column layout
-        // Description: left, flexible
-        // Qty: right
-        // Unit price: right
-        // Total: right
-        const totalX = margin + contentW;
-        const unitX = totalX - 30;
-        const qtyX = unitX - 20;
-        const descX = margin + 2;
-        const descW = qtyX - descX - 6;
-        return { descX, descW, qtyX, unitX, totalX };
-    };
-
     const drawItemsTable = (yStart: number) => {
         let y = yStart;
         const rowPadY = 3.2;
@@ -321,13 +370,11 @@ export const generateQuotationPDF = (
         const headerReprint = () => {
             let yy = drawHeader();
             yy = drawMetaRow(yy);
-            // Only reprint table header (not the From/BillTo blocks to save space)
             yy += 2;
             yy = drawItemsTableHeader(yy);
             return yy;
         };
 
-        // Safety if items are empty
         if (items.length === 0) {
             y = ensureSpace(y, 16, headerReprint);
             setTextColor(C.muted);
@@ -349,18 +396,15 @@ export const generateQuotationPDF = (
 
             y = ensureSpace(y, rowH + 2, headerReprint);
 
-            // zebra background
             if (i % 2 === 1) {
                 setFillColor(C.zebra);
                 doc.rect(margin, y, contentW, rowH, "F");
             }
 
-            // row border bottom
             setDrawColor(C.border);
             doc.setLineWidth(0.2);
             doc.line(margin, y + rowH, margin + contentW, y + rowH);
 
-            // description
             setTextColor(C.text);
             doc.setFont("helvetica", "normal");
             doc.setFontSize(9);
@@ -371,11 +415,10 @@ export const generateQuotationPDF = (
                 if (yy > y + rowH - 2) break;
             }
 
-            // qty / unit / total
             setTextColor(C.muted);
             doc.setFont("helvetica", "normal");
             doc.setFontSize(9);
-            const midY = y + rowH / 2 + 3; // visually centered
+            const midY = y + rowH / 2 + 3;
 
             text(String(qty), cols.qtyX, midY, { align: "right" });
             text(fmtMoney(unit), cols.unitX, midY, { align: "right" });
@@ -422,7 +465,6 @@ export const generateQuotationPDF = (
         text(`Tax (${taxRate.toFixed(2)}%)`, labelX, y + 17);
         text(fmtMoney(taxAmount), valueX, y + 17, { align: "right" });
 
-        // Divider
         setDrawColor(C.border);
         doc.setLineWidth(0.25);
         doc.line(x + 6, y + 20.5, x + cardW - 6, y + 20.5);
@@ -476,7 +518,7 @@ export const generateQuotationPDF = (
         return y + boxH + 8;
     };
 
-    // ---------- Footer (page numbers) ----------
+    // ---------- Footer ----------
     const drawFooter = () => {
         const totalPages = doc.getNumberOfPages();
         for (let p = 1; p <= totalPages; p++) {
@@ -493,7 +535,6 @@ export const generateQuotationPDF = (
             text(left, margin, footerY);
             text(right, pageW - margin, footerY, { align: "right" });
 
-            // subtle top line
             setDrawColor(C.border);
             doc.setLineWidth(0.2);
             doc.line(margin, footerY - 5, pageW - margin, footerY - 5);
@@ -505,19 +546,14 @@ export const generateQuotationPDF = (
     y = drawMetaRow(y);
     y = drawTwoColumnInfo(y);
 
-    // Items table
     y = drawItemsTableHeader(y);
     y = drawItemsTable(y);
 
-    // Totals
     y = drawTotalsCard(y);
 
-    // Notes
     y = drawNotes(y);
 
-    // Final footer pass
     drawFooter();
 
-    // Save
     doc.save(`quotation-${quotationNo}.pdf`);
-};
+}

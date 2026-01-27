@@ -45,9 +45,7 @@ export interface Quotation {
 
   clientEmailLower: string;
 
-  /**
-   * ✅ optional: quotation can be tied to a project OR be standalone
-   */
+
   projectId?: string;
 
   items: QuotationItem[];
@@ -68,18 +66,14 @@ export interface Quotation {
   updatedAt: Date;
 }
 
-/**
- * Firestore doc shape (timestamps etc)
- */
+
 type QuotationDoc = Omit<Quotation, "id" | "createdAt" | "updatedAt" | "validUntil"> & {
   createdAt: TimestampType | ReturnType<typeof serverTimestamp>;
   updatedAt: TimestampType | ReturnType<typeof serverTimestamp>;
   validUntil?: TimestampType | null;
 };
 
-/**
- * ✅ Update shape
- */
+
 export type UpdateQuotationInput = {
   clientName: string;
   clientEmail: string;
@@ -92,9 +86,7 @@ export type UpdateQuotationInput = {
   status: QuotationStatus;
 };
 
-/**
- * ✅ Create shape
- */
+
 export type CreateQuotationInput = {
   clientName: string;
   clientEmail: string;
@@ -110,24 +102,13 @@ export type CreateQuotationInput = {
   status?: QuotationStatus;
 };
 
-/**
- * -------------------- CONSTANTS --------------------
- */
 
 const QUOTATIONS_SUBCOLLECTION = "quotations"; // under projects/{projectId}/quotations
 const STANDALONE_QUOTATIONS_COLLECTION = "quotations_standalone"; // top-level
 
-/**
- * ✅ NEW: per-user counters for clean incremental numbers
- * You can keep QT-<timestamp> if you want, but counters look more professional.
- * Collection: users/{uid}/counters/quotations
- */
 const USER_COUNTERS_SUBCOLLECTION = "counters";
 const QUOTATIONS_COUNTER_DOC = "quotations";
 
-/**
- * -------------------- HELPERS --------------------
- */
 
 function toDateSafe(value: any): Date {
   if (!value) return new Date(0);

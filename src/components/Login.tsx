@@ -25,7 +25,6 @@ const Login: React.FC = () => {
             showToast('Welcome back!', 'success');
             navigate('/dashboard');
         } catch (err: any) {
-
             const errorMessage = err.message || 'Invalid email or password';
             setError(errorMessage);
             showToast(errorMessage, 'error');
@@ -40,40 +39,49 @@ const Login: React.FC = () => {
 
                 <div className="auth-header">
                     <h1 className="auth-title">Sign In</h1>
-                    <p className="auth-subtitle">Enter your credentials to access your workspace</p>
+                    <p className="auth-subtitle">
+                        Enter your credentials to access your workspace
+                    </p>
                 </div>
 
                 <form onSubmit={handleLogin} className="auth-form">
 
-                            <div className="form-group">
-                                <label htmlFor="email" className="form-label">
-                                    Email Address
-                                </label>
-                                <input
-                                    id="email"
-                                    type="email"
-                                    className="form-control"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    placeholder="john.doe@example.com"
-                                    required
-                                />
-                            </div>
+                    <div className="form-group">
+                        <label htmlFor="email" className="form-label">
+                            Email Address
+                        </label>
+                        <input
+                            id="email"
+                            type="email"
+                            className="form-control"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="john.doe@example.com"
+                            required
+                        />
+                    </div>
 
-                            <div className="form-group">
-                                <label htmlFor="password" className="form-label">
-                                    Password
-                                </label>
-                                <input
-                                    id="password"
-                                    type="password"
-                                    className="form-control"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    placeholder="••••••••"
-                                    required
-                                />
-                            </div>
+                    <div className="form-group">
+                        <label htmlFor="password" className="form-label">
+                            Password
+                        </label>
+                        <input
+                            id="password"
+                            type="password"
+                            className="form-control"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="••••••••"
+                            required
+                        />
+
+                        {/* 🔐 Password reset link */}
+                        <div className="text-right mt-1">
+                            <Link to="/forgot-password" className="auth-link">
+                                Forgot password?
+                            </Link>
+                        </div>
+                    </div>
 
                     {error && (
                         <div className="alert alert-error">
@@ -81,14 +89,14 @@ const Login: React.FC = () => {
                         </div>
                     )}
 
-                            <button
-                                type="submit"
-                                className="btn btn-primary btn-full"
-                                disabled={loading}
-                            >
-                                {loading ? 'Signing In...' : 'Sign In'}
-                            </button>
-                        </form>
+                    <button
+                        type="submit"
+                        className="btn btn-primary btn-full"
+                        disabled={loading}
+                    >
+                        {loading ? 'Signing In...' : 'Sign In'}
+                    </button>
+                </form>
 
                 <div className="auth-footer">
                     New here? <Link to="/register">Create an account</Link>
